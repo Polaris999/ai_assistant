@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 from langgraph.graph import END, START, StateGraph
+from langchain_core.prompts import PromptTemplate
 
 from meeting_agent.config import settings
 from meeting_agent.core.llm.base import BaseLLM
@@ -18,7 +19,7 @@ from meeting_agent.agent.state import MeetingAgentState
 
 logger = logging.getLogger(__name__)
 
-PARSE_INTENT_PROMPT = """你是一个会议预定助手。根据用户输入和下面的会议知识，解析出会议预定信息。
+PARSE_INTENT_PROMPT_TEMPLATE = PromptTemplate.from_template("""你是一个会议预定助手。根据用户输入和下面的会议知识，解析出会议预定信息。
 若用户未明确说明日期/时间，使用“当前时间”作为参考（当前时间：{current_time}）。
 若未说明提醒时间，使用默认提前 {default_remind_minutes} 分钟。
 
@@ -34,7 +35,11 @@ PARSE_INTENT_PROMPT = """你是一个会议预定助手。根据用户输入和�
 - room: 会议室名称，没有则 null
 - participants: 参与者列表，没有则 []
 - remind_minutes_before: 提前多少分钟提醒，整数，默认 {default_remind_minutes}
-"""
+""")
+
+REPLY_POLISH_PROMPT_TEMPLATE = PromptTemplate.from_template(
+    "请用一句简短友好的中文确认以下会议预定结果，不要改变事实：{reply}"
+)
 
 
 def _parse_intent_node(state: MeetingAgentState) -> dict:
@@ -49,7 +54,7 @@ def _parse_intent_node(state: MeetingAgentState) -> dict:
     if not llm:
         return {"intent": None, "error": "未注入 LLM", "reply": "服务暂不可用。"}
 
-    prompt = PARSE_INTENT_PROMPT.format(
+    prompt = PARSE_INTENT_PROMPT_TEMPLATE.format(
         current_time=now.isoformat(),
         default_remind_minutes=default_minutes,
         rag_context=rag_context or "（无额外知识）",
@@ -147,7 +152,7 @@ def _reply_node(state: MeetingAgentState) -> dict:
     if not reply_llm:
         return {}
     try:
-        prompt = f"请用一句简短友好的中文确认以下会议预定结果，不要改变事实：{reply}"
+        prompt = REPLY_POLISH_PROMPT_TEMPLATE.format(reply=reply)
         out = reply_llm.invoke(prompt, temperature=0.3)
         if out and out.strip():
             return {"reply": out.strip()}
