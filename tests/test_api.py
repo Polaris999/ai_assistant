@@ -11,10 +11,13 @@ def client():
 
 
 def test_health(client: TestClient):
-    """GET /api/v1/health 返回 200。"""
+    """GET /api/v1/health 返回 200 及 status、version、checks。"""
     r = client.get("/api/v1/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok"}
+    data = r.json()
+    assert data["status"] == "ok"
+    assert "version" in data
+    assert data.get("checks", {}).get("config") == "ok"
 
 
 def test_book_missing_form(client: TestClient):

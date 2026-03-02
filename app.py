@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""FastAPI 入口。"""
+"""FastAPI 入口（生产向：请求 ID、安全头、lifespan、全局异常）。"""
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 _src = Path(__file__).resolve().parent / "src"
@@ -13,6 +14,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from meeting_agent import __version__
+from meeting_agent.api.deps import get_agent, get_scheduler
+from meeting_agent.api.middleware import (
+    REQUEST_ID_HEADER,
+    RequestIDMiddleware,
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+)
 from meeting_agent.api.v1 import router as v1_router
 from meeting_agent.config import settings
 from meeting_agent.core.exceptions import AppException
@@ -21,23 +30,74 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """关闭时优雅停止 Scheduler；Agent 首次请求时懒加载。"""
+    yield
+    # shutdown
+    scheduler = get_scheduler()
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=True)
+            logger.info("ReminderScheduler 已关闭")
+        except Exception as e:
+            logger.exception("Scheduler 关闭异常: %s", e)
+
 
 app = FastAPI(
     title="会议预定 Agent",
     description="LangChain+LangGraph+Dify+RAG，模型胶水层支持 OpenAI/Dify 等",
-    version="1.0.0",
+    version=__version__,
+    lifespan=lifespan,
 )
+
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestIDMiddleware)
+
+app.include_router(v1_router)
+
+
+def _error_body(exc: AppException, request_id: str = "") -> dict:
+    body = exc.to_dict()
+    if request_id:
+        body["request_id"] = request_id
+    return body
 
 
 @app.exception_handler(AppException)
-async def app_exception_handler(_request: Request, exc: AppException) -> JSONResponse:
+async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", "")
     status = 422 if exc.code == "VALIDATION_ERROR" else 400
     if exc.code == "NOT_FOUND":
         status = 404
-    return JSONResponse(status_code=status, content=exc.to_dict())
+    return JSONResponse(
+        status_code=status,
+        content=_error_body(exc, request_id),
+        headers={REQUEST_ID_HEADER: request_id} if request_id else None,
+    )
 
 
-app.include_router(v1_router)
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", "")
+    logger.exception("unhandled exception request_id=%s: %s", request_id, exc)
+    body = {
+        "code": "INTERNAL_ERROR",
+        "message": "Internal server error",
+        "details": {},
+    }
+    if request_id:
+        body["request_id"] = request_id
+    return JSONResponse(
+        status_code=500,
+        content=body,
+        headers={REQUEST_ID_HEADER: request_id} if request_id else None,
+    )
+
 
 _static_dir = Path(__file__).resolve().parent / "static"
 if _static_dir.exists():
@@ -50,4 +110,9 @@ async def root():
 
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+    )

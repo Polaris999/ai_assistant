@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional
 
 from meeting_agent.config import settings
 from meeting_agent.config.settings import Settings
@@ -18,3 +18,10 @@ def get_agent():
     if _agent_singleton is None:
         _agent_singleton = create_meeting_agent_graph()
     return _agent_singleton
+
+
+def get_scheduler() -> Optional[Any]:
+    """返回当前 Agent 使用的 ReminderScheduler，用于 lifespan 优雅关闭。"""
+    if _agent_singleton is None:
+        return None
+    return getattr(_agent_singleton, "_scheduler", None)

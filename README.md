@@ -24,7 +24,7 @@
 │       ├── models/             # 领域模型
 │       ├── services/           # 应用服务
 │       ├── agent/              # LangGraph 图
-│       ├── api/                # HTTP 层（deps, v1, legacy）
+│       ├── api/                # HTTP 层（deps, v1, middleware）
 │       ├── voice/              # 语音转文字
 │       └── main.py             # 命令行入口逻辑
 ├── tests/                      # 单元/集成测试
@@ -121,11 +121,20 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ## 开发与测试
 
 - **安装开发依赖**：`pip install -e ".[dev]"`（含 pytest、httpx、ruff）。
-- **运行测试**：在项目根目录执行 `pytest tests/ -v`（会跑单元测试与 API 集成测试）。
+- **运行测试**：在项目根目录执行 `pytest tests/ -v`。
 - **代码检查**：`ruff check src tests`。
 - **命令行**：安装后执行 `meeting-agent`，或 `python -m meeting_agent.main`（需 `PYTHONPATH=src` 或已安装）。
 - **API**：根目录执行 `uvicorn app:app --reload`。
-- **CI**：`.github/workflows/ci.yml` 在 push/PR 时执行 ruff + pytest（无需配置 API Key 即可通过）。
+- **CI**：`.github/workflows/ci.yml` 在 push/PR 时执行 ruff + pytest。
+
+## 生产部署要点
+
+- **请求 ID**：所有响应带 `X-Request-ID`（可透传或自动生成），异常响应 body 中含 `request_id` 便于排查。
+- **安全头**：自动添加 `X-Content-Type-Options`、`X-Frame-Options`、`X-XSS-Protection`。
+- **请求日志**：每条请求结束后打一条日志（method、path、status、duration_ms、request_id）。
+- **优雅关闭**：lifespan 关闭时自动调用 `ReminderScheduler.shutdown()`，等待进行中任务结束。
+- **健康检查**：`GET /api/v1/health` 返回 `status`、`version`、`checks`，可用于探针与版本查看。
+- **全局异常**：未捕获异常统一返回 500 + `INTERNAL_ERROR`，仅记录服务端日志，不向客户端暴露堆栈。
 
 ## 扩展建议
 
@@ -135,9 +144,6 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 ## 还可改进的方向
 
-- **测试**：`pip install -e ".[dev]"` 后运行 `pytest`；为 API 增加 `TestClient` 集成测试。
-- **代码质量**：在 `pyproject.toml` 中配置 `ruff` 或 `black`，可选 pre-commit。
-- **CI**：GitHub Actions / GitLab CI 跑 pytest、lint，再构建镜像或发布。
-- **配置**：多环境 `.env.dev` / `.env.prod`，或使用 pydantic 的 `env_nested_delimiter` 区分层级。
-- **日志**：结构化日志（JSON）、request_id 与 trace 便于排查。
-- **API 文档**：FastAPI 自带 OpenAPI；可补充示例与鉴权说明。
+- **配置**：多环境 `.env.dev` / `.env.prod`，或 pydantic `env_nested_delimiter`。
+- **API 文档**：OpenAPI 补充示例、鉴权说明与错误响应 schema。
+- **限流/鉴权**：按需加 rate limit、JWT 或 API Key 中间件。
