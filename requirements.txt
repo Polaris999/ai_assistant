@@ -1,0 +1,31 @@
+# LangChain + LangGraph
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-community>=0.3.0
+langgraph>=0.2.0
+
+# Dify API (optional, or use requests)
+requests>=2.31.0
+
+# RAG vector store
+chromadb>=0.4.0
+langchain-chroma>=0.1.0
+
+# Voice input (Whisper or local)
+# OpenAI Whisper via openai
+openai>=1.0.0
+# Local speech recognition
+SpeechRecognition>=3.10.0
+pyaudio>=0.2.14
+
+# Scheduler for reminders
+apscheduler>=3.10.0
+
+# Config and tools
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# Optional: FastAPI HTTP API
+fastapi>=0.115.0
+uvicorn>=0.30.0

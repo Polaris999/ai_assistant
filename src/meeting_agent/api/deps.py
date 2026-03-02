@@ -1,0 +1,20 @@
+from functools import lru_cache
+from typing import Any
+
+from meeting_agent.config import settings
+from meeting_agent.config.settings import Settings
+from meeting_agent.agent.meeting_agent import create_meeting_agent_graph
+
+_agent_singleton: Any = None
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return settings
+
+
+def get_agent():
+    global _agent_singleton
+    if _agent_singleton is None:
+        _agent_singleton = create_meeting_agent_graph()
+    return _agent_singleton
