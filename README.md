@@ -1,13 +1,18 @@
-# 会议预定 Agent 示例（LangChain + LangGraph + Dify + RAG）
+# 会议预定 Agent 示例（LangChain + LangGraph + RAG）
 
 通过**语音或文本**输入创建会议预定，并在会议开始前 **X 分钟**触发提醒。
 
 ## 技术栈
 
 - **LangChain / LangGraph**：有状态 Agent 工作流（RAG → 解析意图 → 创建会议 → 安排提醒 → 回复润色）
-- **Core 胶水层**：LLM / Embeddings 抽象与适配器，可切换 OpenAI、Dify 等，符合依赖倒置
+- **Core 胶水层（业内通用）**：LLM 支持 **OpenAI**、**vLLM**（自托管推理，OpenAI 兼容 API）、**Dify**；Embeddings 可切换，符合依赖倒置
 - **RAG**：Chroma + 会议知识库，Embedding 由胶水层注入
 - **APScheduler**：定时在“开始前 X 分钟”触发提醒
+
+**Agent 开发范式**：显式状态（`MeetingAgentState` TypedDict）、单职责节点、图内依赖注入（LLM/Store/Scheduler/RAG），生命周期与 FastAPI `app.state` 一致；详见 `docs/AGENT_REVIEW.md`。
+
+**Prompt 配置化**：解析意图/回复润色模板默认来自 `config/prompts/`，可通过 `PROMPT_PARSE_INTENT_PATH`、`PROMPT_REPLY_POLISH_PATH` 覆盖（绝对路径或相对项目根）。  
+**可观测**：请求级日志回调（节点/LLM 打点，带 `request_id`）；可选开启 LangSmith（`LANGCHAIN_TRACING_ENABLED=true` 且配置 `LANGCHAIN_API_KEY`）。
 
 ## 项目结构（src layout + 最佳实践）
 
@@ -45,8 +50,10 @@
 
 ```bash
 cp .env.example .env
-# 编辑 .env：至少配置 OPENAI_API_KEY（意图解析 + 可选 Whisper）
-# 可选：DIFY_API_KEY、DIFY_BASE_URL（润色回复）
+# 编辑 .env：至少配置一种 LLM
+# - OpenAI：OPENAI_API_KEY（意图解析 + 可选 Whisper）
+# - vLLM 自托管：VLLM_BASE_URL（如 http://localhost:8000/v1）、VLLM_CHAT_MODEL
+# - Dify：DIFY_API_KEY、DIFY_BASE_URL（润色等）
 ```
 
 2. 安装依赖（二选一）：
@@ -67,8 +74,8 @@ pip install langgraph
 
 （依赖解析可能需 1～3 分钟，请等待完成。若仍失败，可新建虚拟环境后执行 `pip install -r requirements.txt`。）
 
-3. **模型胶水层**：`LLM_TYPE=openai` 时需配置 `OPENAI_API_KEY`；设为 `dify` 则用 `DIFY_API_KEY`。  
-4. **回复润色**：可选 `REPLY_LLM_TYPE=dify`，用 Dify 润色最终回复；不设则直接返回模板文案。
+3. **模型胶水层**：`LLM_TYPE=openai` 需配置 `OPENAI_API_KEY`；`LLM_TYPE=vllm` 需配置 `VLLM_BASE_URL`（vLLM 服务 OpenAI 兼容端点）和可选 `VLLM_CHAT_MODEL`；`LLM_TYPE=dify` 需配置 `DIFY_API_KEY`。  
+4. **回复润色**：可选 `REPLY_LLM_TYPE=dify` 等，不设则直接返回模板文案。
 
 ## 使用方式
 

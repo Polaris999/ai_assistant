@@ -1,4 +1,4 @@
-# core/llm/openai_adapter.py
+"""OpenAI 兼容 API 的 LLM 适配器（含 OpenAI 官方、vLLM 等自托管）。"""
 import logging
 from typing import Any, Optional
 
@@ -18,6 +18,8 @@ _SYSTEM_HUMAN_TEMPLATE = ChatPromptTemplate.from_messages([
 
 
 class OpenAILLMAdapter(BaseLLM):
+    """通过 LangChain ChatOpenAI 调用 OpenAI 或任意 OpenAI 兼容端点（如 vLLM）。"""
+
     def __init__(
         self,
         model: str = "gpt-4o-mini",

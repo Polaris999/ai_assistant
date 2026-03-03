@@ -1,3 +1,4 @@
+"""会议提醒调度：APScheduler 在「开始前 N 分钟」触发回调，支持优雅 shutdown。"""
 import logging
 from datetime import datetime
 from typing import Callable, Optional
@@ -10,6 +11,8 @@ ReminderCallback = Callable[[str, str, datetime], None]
 
 
 class ReminderScheduler:
+    """在指定时间触发提醒回调（默认仅打日志），支持 shutdown(wait=True)。"""
+
     def __init__(self, callback: Optional[ReminderCallback] = None) -> None:
         self._scheduler = BackgroundScheduler()
         self._callback = callback or self._default_callback

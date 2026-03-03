@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""FastAPI 入口（生产向：请求 ID、安全头、lifespan、全局异常）。"""
+"""FastAPI 入口（生产向：请求 ID、安全头、lifespan、全局异常、可观测）。"""
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,7 +16,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from meeting_agent import __version__
-from meeting_agent.api.deps import get_agent, get_scheduler
+from meeting_agent.agent.meeting_agent import create_meeting_agent_graph
+from meeting_agent.api.deps import get_agent
 from meeting_agent.api.middleware import (
     REQUEST_ID_HEADER,
     RequestIDMiddleware,
@@ -35,21 +37,28 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """关闭时优雅停止 Scheduler；Agent 首次请求时懒加载。"""
+    """启动时配置可观测、创建 Agent 并放入 app.state；关闭时优雅停止 Scheduler。"""
+    if getattr(settings, "langchain_tracing_enabled", False):
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        if getattr(settings, "langchain_project", ""):
+            os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
+        logger.info("LangSmith 追踪已开启，项目名: %s", getattr(settings, "langchain_project", "meeting-agent"))
+    app.state.agent = create_meeting_agent_graph()
     yield
-    # shutdown
-    scheduler = get_scheduler()
-    if scheduler is not None:
-        try:
-            scheduler.shutdown(wait=True)
-            logger.info("ReminderScheduler 已关闭")
-        except Exception as e:
-            logger.exception("Scheduler 关闭异常: %s", e)
+    agent = getattr(app.state, "agent", None)
+    if agent is not None:
+        scheduler = getattr(agent, "_scheduler", None)
+        if scheduler is not None:
+            try:
+                scheduler.shutdown(wait=True)
+                logger.info("ReminderScheduler 已关闭")
+            except Exception as e:
+                logger.exception("Scheduler 关闭异常: %s", e)
 
 
 app = FastAPI(
     title="会议预定 Agent",
-    description="LangChain+LangGraph+Dify+RAG，模型胶水层支持 OpenAI/Dify 等",
+    description="LangChain+LangGraph+RAG，模型胶水层支持 OpenAI / vLLM / Dify",
     version=__version__,
     lifespan=lifespan,
 )

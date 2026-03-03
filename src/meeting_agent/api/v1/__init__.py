@@ -1,3 +1,4 @@
+"""v1 路由聚合：/api/v1/book、/api/v1/health。"""
 from fastapi import APIRouter
 
 from meeting_agent.api.v1 import book, health

@@ -1,3 +1,4 @@
+"""会议知识 RAG：Chroma 向量库 + 默认会议室/规则知识，供意图解析节点检索。"""
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -12,6 +13,7 @@ from meeting_agent.core.embeddings.factory import get_embeddings
 
 logger = logging.getLogger(__name__)
 
+# 首次初始化时写入向量库的默认会议知识
 DEFAULT_MEETING_KNOWLEDGE = [
     "会议室A：容纳10人，支持投影，工作日上午9点到下午6点可预约。",
     "会议室B：容纳4人，支持视频会议，全天可预约。",
@@ -22,6 +24,8 @@ DEFAULT_MEETING_KNOWLEDGE = [
 
 
 class MeetingRAG:
+    """基于 Chroma 的会议知识检索：支持默认知识初始化与按 query 检索上下文。"""
+
     COLLECTION_NAME = "meeting_knowledge"
 
     def __init__(

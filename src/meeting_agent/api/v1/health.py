@@ -1,3 +1,4 @@
+"""健康与版本探针，供负载均衡/就绪检查。"""
 from fastapi import APIRouter
 
 from meeting_agent import __version__

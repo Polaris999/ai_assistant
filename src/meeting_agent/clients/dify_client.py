@@ -1,4 +1,4 @@
-# clients/dify_client.py
+"""Dify 对话/补全 API 客户端，供 DifyLLMAdapter 调用。"""
 import logging
 from typing import Any, Optional
 
@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 class DifyClient:
+    """请求 Dify chat-messages 或 completion-messages，支持 blocking 取 answer。"""
+
     def __init__(
         self,
         api_key: Optional[str] = None,

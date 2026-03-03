@@ -1,13 +1,14 @@
-# agent/meeting_agent.py
+"""LangGraph 会议预定 Agent：RAG → 解析意图 → 创建预定 → 回复润色，状态与节点显式定义。"""
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 from langgraph.graph import END, START, StateGraph
-from langchain_core.prompts import PromptTemplate
 
+from meeting_agent.agent.state import MeetingAgentState
 from meeting_agent.config import settings
+from meeting_agent.config.prompt_loader import get_parse_intent_template, get_reply_polish_template
 from meeting_agent.core.llm.base import BaseLLM
 from meeting_agent.core.llm.factory import get_llm
 from meeting_agent.models.meeting import MeetingIntent
@@ -15,34 +16,11 @@ from meeting_agent.rag.meeting_rag import MeetingRAG
 from meeting_agent.services.meeting_store import MeetingStore
 from meeting_agent.services.reminder_scheduler import ReminderScheduler
 
-from meeting_agent.agent.state import MeetingAgentState
-
 logger = logging.getLogger(__name__)
-
-PARSE_INTENT_PROMPT_TEMPLATE = PromptTemplate.from_template("""你是一个会议预定助手。根据用户输入和下面的会议知识，解析出会议预定信息。
-若用户未明确说明日期/时间，使用“当前时间”作为参考（当前时间：{current_time}）。
-若未说明提醒时间，使用默认提前 {default_remind_minutes} 分钟。
-
-会议知识（仅供参考）：
-{rag_context}
-
-用户输入：{user_input}
-
-请严格输出一个 JSON，且仅此 JSON，不要其他文字。字段说明：
-- title: 会议主题（字符串）
-- start_time: 会议开始时间，ISO 格式，如 2025-03-03T14:00:00
-- duration_minutes: 时长（分钟），整数，默认 60
-- room: 会议室名称，没有则 null
-- participants: 参与者列表，没有则 []
-- remind_minutes_before: 提前多少分钟提醒，整数，默认 {default_remind_minutes}
-""")
-
-REPLY_POLISH_PROMPT_TEMPLATE = PromptTemplate.from_template(
-    "请用一句简短友好的中文确认以下会议预定结果，不要改变事实：{reply}"
-)
 
 
 def _parse_intent_node(state: MeetingAgentState) -> dict:
+    """RAG 后解析用户输入为会议意图（JSON），写入 state.intent 或 state.error/reply。"""
     user_input = (state.get("user_input") or "").strip()
     if not user_input:
         return {"intent": None, "error": "用户输入为空", "reply": "请说出或输入您要预定的会议信息。"}
@@ -54,7 +32,7 @@ def _parse_intent_node(state: MeetingAgentState) -> dict:
     if not llm:
         return {"intent": None, "error": "未注入 LLM", "reply": "服务暂不可用。"}
 
-    prompt = PARSE_INTENT_PROMPT_TEMPLATE.format(
+    prompt = get_parse_intent_template().format(
         current_time=now.isoformat(),
         default_remind_minutes=default_minutes,
         rag_context=rag_context or "（无额外知识）",
@@ -67,7 +45,7 @@ def _parse_intent_node(state: MeetingAgentState) -> dict:
         text = text.strip()
         if text.startswith("```"):
             lines = text.split("\n")
-            text = "\n".join(l for l in lines if l.strip() and not l.strip().startswith("```"))
+            text = "\n".join(line for line in lines if line.strip() and not line.strip().startswith("```"))
         data = json.loads(text)
         start_time_str = data.get("start_time")
         if isinstance(start_time_str, str):
@@ -102,6 +80,7 @@ def _parse_intent_node(state: MeetingAgentState) -> dict:
 
 
 def _create_booking_node(state: MeetingAgentState) -> dict:
+    """根据 intent 创建预定（MeetingStore）并调度提醒（ReminderScheduler），写入 state.booking/reply。"""
     intent = state.get("intent")
     if intent is None:
         return {"booking": None, "reply": state.get("reply", "无法创建会议。")}
@@ -112,7 +91,6 @@ def _create_booking_node(state: MeetingAgentState) -> dict:
         return {"booking": None, "error": "未注入 MeetingStore 或 ReminderScheduler", "reply": "服务暂不可用。"}
 
     try:
-        from datetime import timedelta
         reminder_at = intent.start_time - timedelta(minutes=intent.remind_minutes_before)
         if reminder_at <= datetime.now():
             reminder_at = datetime.now()
@@ -145,6 +123,7 @@ def _create_booking_node(state: MeetingAgentState) -> dict:
 
 
 def _reply_node(state: MeetingAgentState) -> dict:
+    """可选：用 reply_llm 对 state.reply 做简短润色后写回 state.reply。"""
     reply = state.get("reply") or ""
     if not reply:
         return {}
@@ -152,7 +131,7 @@ def _reply_node(state: MeetingAgentState) -> dict:
     if not reply_llm:
         return {}
     try:
-        prompt = REPLY_POLISH_PROMPT_TEMPLATE.format(reply=reply)
+        prompt = get_reply_polish_template().format(reply=reply)
         out = reply_llm.invoke(prompt, temperature=0.3)
         if out and out.strip():
             return {"reply": out.strip()}
@@ -162,6 +141,7 @@ def _reply_node(state: MeetingAgentState) -> dict:
 
 
 def _route_after_parse(state: MeetingAgentState) -> Literal["create_booking", "end"]:
+    """解析成功且有 intent 则走 create_booking，否则结束。"""
     if state.get("intent") is not None and state.get("error") is None:
         return "create_booking"
     return "end"
@@ -174,6 +154,7 @@ def create_meeting_agent_graph(
     reminder_scheduler: Optional[ReminderScheduler] = None,
     meeting_rag: Optional[MeetingRAG] = None,
 ):
+    """构建 LangGraph 会议预定 Agent：rag → parse_intent → [create_booking → reply_polish] | end。"""
     store = meeting_store or MeetingStore()
     scheduler = reminder_scheduler or ReminderScheduler()
     rag = meeting_rag or MeetingRAG()
@@ -209,6 +190,8 @@ def create_meeting_agent_graph(
     compiled = graph.compile()
 
     class AgentRunner:
+        """封装编译后的图与依赖，对外仅暴露 invoke(user_input, request_id=...)。"""
+
         def __init__(self, g, st, sc, r, llm_instance, reply_llm_instance):
             self._graph = g
             self._store = st
@@ -217,7 +200,7 @@ def create_meeting_agent_graph(
             self._llm = llm_instance
             self._reply_llm = reply_llm_instance
 
-        def invoke(self, user_input: str, user_id: str = "default") -> dict:
+        def invoke(self, user_input: str, user_id: str = "default", request_id: Optional[str] = None) -> dict:
             rag.init_default_knowledge()
             initial: MeetingAgentState = {
                 "user_input": user_input,
@@ -233,7 +216,12 @@ def create_meeting_agent_graph(
                 "_scheduler": self._scheduler,
                 "_rag": self._rag,
             }
-            result = self._graph.invoke(initial)
+            config: dict = {}
+            if request_id is not None:
+                from meeting_agent.core.callbacks import AgentLoggingCallbackHandler
+                config["callbacks"] = [AgentLoggingCallbackHandler(request_id=request_id)]
+                config["metadata"] = {"request_id": request_id}
+            result = self._graph.invoke(initial, config=config)
             return {
                 "reply": result.get("reply", ""),
                 "booking": result.get("booking"),

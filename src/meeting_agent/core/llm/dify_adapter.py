@@ -1,4 +1,4 @@
-# core/llm/dify_adapter.py
+"""Dify 应用作为 LLM 的适配器，通过 chat-messages API 调用。"""
 import logging
 from typing import Any, Optional
 
@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 class DifyLLMAdapter(BaseLLM):
+    """将 Dify 对话应用封装为 BaseLLM，支持 system + user 拼接为单次请求。"""
+
     def __init__(
         self,
         api_key: str,

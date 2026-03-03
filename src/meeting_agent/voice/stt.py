@@ -1,3 +1,4 @@
+"""语音转文字：优先 Whisper（需 OPENAI_API_KEY），否则本地 SpeechRecognition。"""
 import io
 import logging
 from pathlib import Path
@@ -12,6 +13,7 @@ def speech_to_text(
     audio_source: Union[str, Path, bytes],
     use_whisper: bool = True,
 ) -> str:
+    """将音频文件或字节转为文本；use_whisper=True 且配置了 API Key 时用 Whisper。"""
     if use_whisper and settings.openai_api_key:
         return _whisper_transcribe(audio_source)
     return _local_sr_transcribe(audio_source)

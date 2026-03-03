@@ -1,3 +1,4 @@
+"""Embeddings 胶水层工厂：按 embedding_type 返回对应适配器。"""
 from typing import Optional
 
 from meeting_agent.config import settings
@@ -9,6 +10,7 @@ EMBEDDING_TYPE_OPENAI = "openai"
 
 
 def get_embeddings(embedding_type: Optional[str] = None) -> BaseEmbeddings:
+    """根据配置返回 Embeddings 实例，缺省为 openai。"""
     t = embedding_type or getattr(settings, "embedding_type", None) or EMBEDDING_TYPE_OPENAI
     if t == EMBEDDING_TYPE_OPENAI:
         api_key = getattr(settings, "openai_api_key", None) or ""

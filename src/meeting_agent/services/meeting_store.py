@@ -1,3 +1,4 @@
+"""会议预定内存存储与创建：单进程内 Dict 存储，可替换为持久化实现。"""
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -6,6 +7,8 @@ from meeting_agent.models.meeting import MeetingBooking
 
 
 class MeetingStore:
+    """会议预定仓储：创建、按 ID 查询、列出即将开始的预定。"""
+
     def __init__(self) -> None:
         self._bookings: Dict[str, MeetingBooking] = {}
 
