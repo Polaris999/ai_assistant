@@ -19,7 +19,7 @@
 | 层次     | 选型                 | 说明 |
 |----------|----------------------|------|
 | Agent 编排 | LangGraph            | 显式状态图、节点/边、条件分支，符合 Agent 范式 |
-| LLM 胶水层 | OpenAI / vLLM / Dify | 业内通用：OpenAI API、vLLM 自托管（OpenAI 兼容）、Dify |
+| LLM 胶水层 | vllm / openai / dify | 配置切换 |
 | LLM/提示  | LangChain + PromptTemplate | 模板统一用 langchain_core.prompts |
 | RAG      | Chroma + langchain-chroma | 向量检索、与 LangChain 集成 |
 | 配置     | pydantic-settings    | 类型安全、环境变量与 .env |
@@ -52,8 +52,8 @@
 
 ## 6. 业内通用做法对齐
 
-- **LLM 胶水层**：已支持 OpenAI、**vLLM**（自托管推理，OpenAI 兼容 API）、Dify；vLLM 通过 `LLM_TYPE=vllm` + `VLLM_BASE_URL` 使用，与业内“推理用 vLLM、应用层统一接口”一致。
-- **Embeddings**：当前为 OpenAI；自托管场景下 Embeddings 多单独配置（如继续用 OpenAI 或其它向量服务），与 vLLM 分工明确。
+- **LLM 胶水层**：vllm / openai / dify 按配置切换；vllm 使用 `VLLM_BASE_URL`。
+- **Embeddings / 向量库**：Embeddings 为 local / openai；向量库为 chroma / qdrant / weaviate，均按配置切换。
 
 ## 7. 建议后续优化（非必须）
 

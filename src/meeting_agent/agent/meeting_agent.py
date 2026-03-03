@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from meeting_agent.agent.state import MeetingAgentState
 from meeting_agent.config import settings
 from meeting_agent.config.prompt_loader import get_parse_intent_template, get_reply_polish_template
+from meeting_agent.core.exceptions import ConfigError
 from meeting_agent.core.llm.base import BaseLLM
 from meeting_agent.core.llm.factory import get_llm
 from meeting_agent.models.meeting import MeetingIntent
@@ -147,6 +148,23 @@ def _route_after_parse(state: MeetingAgentState) -> Literal["create_booking", "e
     return "end"
 
 
+class _UnreadyAgentRunner:
+    """LLM 未配置时返回的占位 Runner：invoke 直接返回友好提示，不跑图；_scheduler 为 None 供 lifespan 安全判断。"""
+
+    _scheduler = None
+
+    def __init__(self, config_message: str = ""):
+        self._config_message = config_message or "LLM 未配置"
+
+    def invoke(self, user_input: str, user_id: str = "default", request_id: Optional[str] = None) -> dict:
+        reply = (
+            "服务未就绪：请配置 LLM（如 OPENAI_API_KEY 或 VLLM_BASE_URL 或 DIFY_API_KEY）。"
+            if not self._config_message.strip()
+            else f"服务未就绪：{self._config_message}"
+        )
+        return {"reply": reply, "booking": None, "error": "CONFIG_ERROR"}
+
+
 def create_meeting_agent_graph(
     llm: Optional[BaseLLM] = None,
     reply_llm: Optional[BaseLLM] = None,
@@ -159,7 +177,11 @@ def create_meeting_agent_graph(
     scheduler = reminder_scheduler or ReminderScheduler()
     rag = meeting_rag or MeetingRAG()
     if llm is None:
-        llm = get_llm()
+        try:
+            llm = get_llm()
+        except ConfigError as e:
+            logger.warning("LLM 未配置，Agent 将返回就绪提示（不崩溃）: %s", e)
+            return _UnreadyAgentRunner(str(e))
     if reply_llm is None:
         rt = getattr(settings, "reply_llm_type", "").strip()
         if rt:

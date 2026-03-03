@@ -1,4 +1,4 @@
-"""语音转文字：优先 Whisper（需 OPENAI_API_KEY），否则本地 SpeechRecognition。"""
+"""语音转文字：Whisper API / 本地 faster-whisper / Google SR。"""
 import io
 import logging
 from pathlib import Path
@@ -13,13 +13,17 @@ def speech_to_text(
     audio_source: Union[str, Path, bytes],
     use_whisper: bool = True,
 ) -> str:
-    """将音频文件或字节转为文本；use_whisper=True 且配置了 API Key 时用 Whisper。"""
-    if use_whisper and settings.openai_api_key:
-        return _whisper_transcribe(audio_source)
+    """将音频文件或字节转为文本。优先：Whisper API（有 key）→ 本地 faster-whisper → Google SR。"""
+    if use_whisper:
+        if settings.openai_api_key:
+            return _whisper_openai(audio_source)
+        text = _whisper_local(audio_source)
+        if text is not None:
+            return text
     return _local_sr_transcribe(audio_source)
 
 
-def _whisper_transcribe(audio_source: Union[str, Path, bytes]) -> str:
+def _whisper_openai(audio_source: Union[str, Path, bytes]) -> str:
     try:
         from openai import OpenAI
     except ImportError:
@@ -41,6 +45,29 @@ def _whisper_transcribe(audio_source: Union[str, Path, bytes]) -> str:
             with open(tmp.name, "rb") as f:
                 response = client.audio.transcriptions.create(model="whisper-1", file=f)
     return (response.text or "").strip()
+
+
+def _whisper_local(audio_source: Union[str, Path, bytes]) -> str | None:
+    """本地 Whisper（faster-whisper）；未安装时返回 None。"""
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        return None
+
+    model = WhisperModel(getattr(settings, "local_whisper_model", "base"), device="cpu", compute_type="int8")
+    if isinstance(audio_source, bytes):
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+            tmp.write(audio_source)
+            tmp.flush()
+            segments, _ = model.transcribe(tmp.name, language="zh")
+    else:
+        path = Path(audio_source)
+        if not path.exists():
+            raise FileNotFoundError(f"音频文件不存在: {path}")
+        segments, _ = model.transcribe(str(path), language="zh")
+    text = " ".join(s.text for s in segments).strip()
+    return text or None
 
 
 def _local_sr_transcribe(audio_source: Union[str, Path, bytes]) -> str:

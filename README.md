@@ -5,8 +5,8 @@
 ## 技术栈
 
 - **LangChain / LangGraph**：有状态 Agent 工作流（RAG → 解析意图 → 创建会议 → 安排提醒 → 回复润色）
-- **Core 胶水层（业内通用）**：LLM 支持 **OpenAI**、**vLLM**（自托管推理，OpenAI 兼容 API）、**Dify**；Embeddings 可切换，符合依赖倒置
-- **RAG**：Chroma + 会议知识库，Embedding 由胶水层注入
+- **Core 胶水层**：LLM（vllm / openai / dify）、Embeddings（local / openai）、向量库（chroma / qdrant / weaviate）按配置切换
+- **RAG**：会议知识库，Embedding 与向量库由胶水层注入
 - **APScheduler**：定时在“开始前 X 分钟”触发提醒
 
 **Agent 开发范式**：显式状态（`MeetingAgentState` TypedDict）、单职责节点、图内依赖注入（LLM/Store/Scheduler/RAG），生命周期与 FastAPI `app.state` 一致；详见 `docs/AGENT_REVIEW.md`。
@@ -53,6 +53,7 @@
 |------|------|
 | [docs/DESIGN.md](docs/DESIGN.md) | **概要设计**：系统目标、分层架构、核心流程（预定、Agent 图、HTTP）、关键设计（胶水层、配置、可观测、生命周期）、目录与入口、扩展与约束 |
 | [docs/AGENT_REVIEW.md](docs/AGENT_REVIEW.md) | **框架与规范**：项目结构、技术选型、Agent 范式、代码风格与注释规范、业内做法、后续优化建议 |
+| [docs/PRIVATE_DEPLOYMENT.md](docs/PRIVATE_DEPLOYMENT.md) | 私有化部署：LLM/Embeddings/向量库/语音配置与可选依赖 |
 
 ## 环境准备
 
@@ -60,10 +61,7 @@
 
 ```bash
 cp .env.example .env
-# 编辑 .env：至少配置一种 LLM
-# - OpenAI：OPENAI_API_KEY（意图解析 + 可选 Whisper）
-# - vLLM 自托管：VLLM_BASE_URL（如 http://localhost:8000/v1）、VLLM_CHAT_MODEL
-# - Dify：DIFY_API_KEY、DIFY_BASE_URL（润色等）
+# 编辑 .env：至少配置一种 LLM（OPENAI_API_KEY / VLLM_BASE_URL / DIFY_API_KEY）
 ```
 
 2. 安装依赖（二选一）：
@@ -84,8 +82,8 @@ pip install langgraph
 
 （依赖解析可能需 1～3 分钟，请等待完成。若仍失败，可新建虚拟环境后执行 `pip install -r requirements.txt`。）
 
-3. **模型胶水层**：`LLM_TYPE=openai` 需配置 `OPENAI_API_KEY`；`LLM_TYPE=vllm` 需配置 `VLLM_BASE_URL`（vLLM 服务 OpenAI 兼容端点）和可选 `VLLM_CHAT_MODEL`；`LLM_TYPE=dify` 需配置 `DIFY_API_KEY`。  
-4. **回复润色**：可选 `REPLY_LLM_TYPE=dify` 等，不设则直接返回模板文案。
+3. **胶水层**：LLM_TYPE 对应配置 OPENAI_API_KEY / VLLM_BASE_URL / DIFY_API_KEY；Embeddings 可选 local（`.[local]`）或 openai；向量库见 `VECTOR_STORE_TYPE`。  
+4. **回复润色**：可选 `REPLY_LLM_TYPE`，不设则直接返回模板文案。
 
 ## 使用方式
 
@@ -123,7 +121,7 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 1. **输入**：语音文件 → STT（Whisper 或本地）→ 文本；或直接文本。
 2. **RAG**：用当前用户输入在 Chroma 中检索会议知识（会议室、规则），得到 `rag_context`。
-3. **解析意图**：由胶水层 LLM（OpenAI / vLLM / Dify）根据用户输入 + `rag_context` 输出结构化 `MeetingIntent`。
+3. **解析意图**：胶水层 LLM 根据用户输入 + `rag_context` 输出结构化 `MeetingIntent`。
 4. **创建会议**：写入会议存储，并用 APScheduler 在「开始时间 − X 分钟」触发提醒。
 5. **回复**：若配置 `REPLY_LLM_TYPE`，用对应 LLM 润色；否则返回模板回复。
 
@@ -131,11 +129,11 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 提醒默认 **提前 15 分钟**，可在 `.env` 中设置 `DEFAULT_REMIND_MINUTES`，或在说法中明确“提前 X 分钟提醒”。
 
-## 模型胶水层（扩展新模型）
+## 模型胶水层（扩展与私有化）
 
-- **LLM**：实现 `meeting_agent.core.llm.base.BaseLLM`，在 `core.llm.factory.get_llm` 中按 `LLM_TYPE` 分支创建。
-- **Embeddings**：实现 `meeting_agent.core.embeddings.base.BaseEmbeddings`，在 `get_embeddings` 中扩展。
-- 业务代码只依赖抽象，便于测试与切换。
+- **LLM**：实现 `meeting_agent.core.llm.base.BaseLLM`，在 `core.llm.factory.get_llm` 中按 `LLM_TYPE` 分支创建；已支持 openai / vllm / dify。
+- **Embeddings**：实现 `BaseEmbeddings`，在 `get_embeddings` 中扩展；openai 适配器支持 `OPENAI_BASE_URL` / `OPENAI_EMBEDDING_BASE_URL`。
+- **私有化**：见 [docs/PRIVATE_DEPLOYMENT.md](docs/PRIVATE_DEPLOYMENT.md)。
 
 ## 开发与测试
 

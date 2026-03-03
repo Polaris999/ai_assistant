@@ -10,13 +10,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "langchain>=0.3.0",
-    "langchain-openai>=0.2.0",
     "langchain-community>=0.3.0",
     "langgraph>=0.2.0",
     "requests>=2.31.0",
     "chromadb>=0.4.0",
     "langchain-chroma>=0.1.0",
-    "openai>=1.0.0",
     "SpeechRecognition>=3.10.0",
     "apscheduler>=3.10.0",
     "pydantic>=2.0.0",
@@ -32,6 +30,26 @@ dev = [
     "pytest-asyncio>=0.21",
     "httpx>=0.24",
     "ruff>=0.4",
+]
+# 本地 Embeddings + 本地 Whisper
+local = [
+    "sentence-transformers>=2.2.0",
+    "faster-whisper>=1.0.0",
+]
+# OpenAI / Whisper API
+openai = [
+    "openai>=1.0.0",
+    "langchain-openai>=0.2.0",
+]
+# Qdrant
+qdrant = [
+    "langchain-qdrant>=2.0.0",
+    "qdrant-client>=1.7.0",
+]
+# Weaviate（Dify 默认向量库）
+weaviate = [
+    "langchain-weaviate>=0.0.20",
+    "weaviate-client>=4.4.0",
 ]
 
 [project.scripts]

@@ -26,7 +26,13 @@ class AgentLoggingCallbackHandler(BaseCallbackHandler):
         return extra
 
     def on_chain_start(self, serialized: dict, inputs: dict, **kwargs: Any) -> None:
-        name = serialized.get("name", serialized.get("id", ["unknown"])[-1] if isinstance(serialized.get("id"), list) else "chain")
+        serialized = serialized or {}
+        id_val = serialized.get("id")
+        name = serialized.get("name")
+        if name is None and isinstance(id_val, list) and id_val:
+            name = id_val[-1]
+        if name is None:
+            name = "chain"
         self._run_start = time.perf_counter()
         logger.info(
             "agent.node_start node=%s",

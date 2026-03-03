@@ -47,7 +47,7 @@
 | 胶水层 | `core/` | LLM/Embeddings 抽象（BaseLLM/BaseEmbeddings）与 openai/vllm/dify 适配器；统一异常（AppException）；可观测回调（AgentLoggingCallbackHandler） |
 | 外部客户端 | `clients/` | Dify API 客户端（chat-messages/completion-messages） |
 | 领域模型 | `models/` | MeetingIntent、MeetingBooking（Pydantic） |
-| RAG | `rag/` | Chroma 向量库、默认会议知识、检索上下文 |
+| RAG | `rag/` | 向量库（chroma/qdrant/weaviate）、默认会议知识、检索上下文 |
 | 应用服务 | `services/` | MeetingStore（预定 CRUD）、ReminderScheduler（APScheduler 定时提醒） |
 | Agent | `agent/` | MeetingAgentState、LangGraph 图定义与节点、AgentRunner.invoke |
 | API | `api/` | FastAPI 路由（v1/book、v1/health）、依赖注入（get_agent、get_settings）、中间件（RequestID、安全头、请求日志） |
@@ -105,9 +105,9 @@
 
 ### 4.1 模型胶水层（LLM / Embeddings）
 
-- **目的**：统一多后端（OpenAI、vLLM、Dify），业务只依赖 `BaseLLM.invoke()`，便于切换与测试。
-- **LLM**：`core/llm/base.py` 定义 `BaseLLM`；`factory.get_llm(llm_type)` 根据 `LLM_TYPE` 返回对应适配器。`openai` / `vllm` 均走 OpenAI 兼容 API（ChatOpenAI + base_url）；`dify` 使用 `DifyLLMAdapter` + `DifyClient`。
-- **Embeddings**：`core/embeddings` 同理，当前仅 `openai`，供 RAG 使用。
+- **目的**：统一多后端，业务只依赖 `BaseLLM.invoke()`，便于切换与测试。
+- **LLM**：`core/llm/base.py` 定义 `BaseLLM`；`factory.get_llm(llm_type)` 按 `LLM_TYPE` 返回 vllm / openai / dify 适配器。
+- **Embeddings**：`core/embeddings` 按 `EMBEDDING_TYPE` 返回 local / openai，供 RAG 使用。向量库由 `core/vectorstore/factory.get_vector_store` 按 `VECTOR_STORE_TYPE` 返回 chroma / qdrant / weaviate。
 
 ### 4.2 配置与 Prompt 配置化
 
