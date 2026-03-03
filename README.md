@@ -41,8 +41,18 @@
 ├── requirements.txt           # 依赖列表（可与 pyproject 二选一）
 ├── .env.example
 ├── .gitignore
-└── README.md
+├── README.md
+└── docs/                    # 设计与管理文档
+    ├── DESIGN.md            # 概要设计说明（架构、流程、模块职责）
+    └── AGENT_REVIEW.md      # 框架与技术范式审查、代码规范
 ```
+
+### 文档索引
+
+| 文档 | 说明 |
+|------|------|
+| [docs/DESIGN.md](docs/DESIGN.md) | **概要设计**：系统目标、分层架构、核心流程（预定、Agent 图、HTTP）、关键设计（胶水层、配置、可观测、生命周期）、目录与入口、扩展与约束 |
+| [docs/AGENT_REVIEW.md](docs/AGENT_REVIEW.md) | **框架与规范**：项目结构、技术选型、Agent 范式、代码风格与注释规范、业内做法、后续优化建议 |
 
 ## 环境准备
 
@@ -113,9 +123,11 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 1. **输入**：语音文件 → STT（Whisper 或本地）→ 文本；或直接文本。
 2. **RAG**：用当前用户输入在 Chroma 中检索会议知识（会议室、规则），得到 `rag_context`。
-3. **解析意图**：由胶水层 LLM（OpenAI 或 Dify）根据用户输入 + `rag_context` 输出结构化 `MeetingIntent`。
+3. **解析意图**：由胶水层 LLM（OpenAI / vLLM / Dify）根据用户输入 + `rag_context` 输出结构化 `MeetingIntent`。
 4. **创建会议**：写入会议存储，并用 APScheduler 在「开始时间 − X 分钟」触发提醒。
 5. **回复**：若配置 `REPLY_LLM_TYPE`，用对应 LLM 润色；否则返回模板回复。
+
+更细的流程与 Agent 图结构见 [docs/DESIGN.md](docs/DESIGN.md) 第 3 节。
 
 提醒默认 **提前 15 分钟**，可在 `.env` 中设置 `DEFAULT_REMIND_MINUTES`，或在说法中明确“提前 X 分钟提醒”。
 
