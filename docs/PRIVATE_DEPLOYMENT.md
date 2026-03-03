@@ -9,7 +9,7 @@
 | 能力 | 配置项 | 可选值 |
 |------|--------|--------|
 | LLM | `LLM_TYPE` | vllm / openai / dify |
-| Embeddings | `EMBEDDING_TYPE` | local / openai / api |
+| Embeddings | `EMBEDDING_TYPE` | openai / api（单独 embedding 服务） |
 | 向量库 | `VECTOR_STORE_TYPE` | chroma / qdrant / weaviate |
 | 语音 | 安装 faster-whisper，不配 `OPENAI_API_KEY` | 本地 Whisper / Google SR |
 
@@ -22,9 +22,8 @@
 - openai：`OPENAI_API_KEY`，可选 `OPENAI_BASE_URL` 指向自建
 - dify：`DIFY_API_KEY`、`DIFY_BASE_URL`
 
-### Embeddings
-- local：sentence-transformers 进程内加载，安装 `pip install -e ".[local]"`，配置 `LOCAL_EMBEDDING_MODEL`（可选）
-- api：自建 embedding 服务，配置 `EMBEDDING_BASE_URL`（需 OpenAI 兼容 `/v1/embeddings`），可选 `EMBEDDING_API_KEY`、`EMBEDDING_MODEL`，无需 OPENAI_*
+### Embeddings（单独 embedding 服务）
+- api（默认）：自建 embedding 服务，配置 `EMBEDDING_BASE_URL`（OpenAI 兼容 `/v1/embeddings`），可选 `EMBEDDING_API_KEY`、`EMBEDDING_MODEL`
 - openai：`OPENAI_API_KEY`，可选 `OPENAI_BASE_URL` / `OPENAI_EMBEDDING_BASE_URL`
 
 ### 向量库
@@ -43,21 +42,20 @@
 LLM_TYPE=vllm
 VLLM_BASE_URL=http://your-host:8000/v1
 
-EMBEDDING_TYPE=local
-LOCAL_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+EMBEDDING_TYPE=api
+EMBEDDING_BASE_URL=http://your-embedding-service/v1
 
 VECTOR_STORE_TYPE=chroma
 CHROMA_PERSIST_DIR=./data/chroma_db
 ```
 
-安装本地能力：`pip install -e ".[local]"`。使用 openai 时：`pip install -e ".[openai]"`。
+使用 openai 做 Embeddings 时：`pip install -e ".[openai]"`。
 
 ---
 
 ## 4. 可选依赖（pyproject.toml）
 
-- `[local]`：sentence-transformers、faster-whisper
-- `[openai]`：openai、langchain-openai
+- `[openai]`：openai、langchain-openai（Embeddings 用 openai 或 api 时）
 - `[qdrant]`：langchain-qdrant、qdrant-client
 - `[weaviate]`：langchain-weaviate、weaviate-client
 

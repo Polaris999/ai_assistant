@@ -16,7 +16,6 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from meeting_agent import __version__
-from meeting_agent.agent.meeting_agent import create_meeting_agent_graph
 from meeting_agent.api.deps import get_agent
 from meeting_agent.api.middleware import (
     REQUEST_ID_HEADER,
@@ -37,13 +36,14 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动时配置可观测、创建 Agent 并放入 app.state；关闭时优雅停止 Scheduler。"""
+    """启动时配置可观测、创建 Agent 并放入 app.state；失败时使用占位（提示原始错误）。"""
     if getattr(settings, "langchain_tracing_enabled", False):
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
         if getattr(settings, "langchain_project", ""):
             os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
         logger.info("LangSmith 追踪已开启，项目名: %s", getattr(settings, "langchain_project", "meeting-agent"))
-    app.state.agent = create_meeting_agent_graph()
+    from meeting_agent.api.agent_bootstrap import create_agent_or_placeholder
+    app.state.agent = create_agent_or_placeholder()
     yield
     agent = getattr(app.state, "agent", None)
     if agent is not None:
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="会议预定 Agent",
-    description="LangChain+LangGraph+RAG，模型胶水层支持 OpenAI / vLLM / Dify",
+    description="LangChain+LangGraph+RAG，LLM/Embeddings/向量库按配置切换（vllm、openai、dify、api、chroma、qdrant、weaviate）",
     version=__version__,
     lifespan=lifespan,
 )

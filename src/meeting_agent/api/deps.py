@@ -15,10 +15,11 @@ def get_settings() -> Settings:
 
 
 def get_agent(request: Request) -> Any:
-    """从 app.state 获取 Agent（lifespan 中已设置）；测试环境下未触发 lifespan 时懒创建并写入 state。"""
+    """从 app.state 获取 Agent（lifespan 中已创建，失败时为占位）。未设置时返回占位避免 500。"""
     agent = getattr(request.app.state, "agent", None)
-    if agent is None:
-        from meeting_agent.agent.meeting_agent import create_meeting_agent_graph
-        request.app.state.agent = create_meeting_agent_graph()
-        agent = request.app.state.agent
-    return agent
+    if agent is not None:
+        return agent
+    # 未触发 lifespan 时（如部分测试）占位，避免 agent.invoke 报错
+    from meeting_agent.api.agent_bootstrap import create_agent_or_placeholder
+    request.app.state.agent = create_agent_or_placeholder()
+    return request.app.state.agent

@@ -1,12 +1,10 @@
-"""Embeddings 胶水层工厂：local / openai / api（自建服务，用 EMBEDDING_* 配置）。"""
+"""Embeddings 胶水层：openai | api（单独 embedding 服务，OpenAI 兼容接口）。"""
 from typing import Optional
 
 from meeting_agent.config import settings
 from meeting_agent.core.exceptions import ConfigError
 from meeting_agent.core.embeddings.base import BaseEmbeddings
-from meeting_agent.core.embeddings.local_adapter import LocalEmbeddingsAdapter
 
-EMBEDDING_TYPE_LOCAL = "local"
 EMBEDDING_TYPE_OPENAI = "openai"
 EMBEDDING_TYPE_API = "api"
 
@@ -16,17 +14,14 @@ def _openai_compat_adapter(model: str, api_key: str, base_url: Optional[str]):
         from meeting_agent.core.embeddings.openai_adapter import OpenAIEmbeddingsAdapter
     except ImportError as e:
         raise ConfigError(
-            "Embeddings API（OpenAI 兼容）需安装: pip install -e '.[openai]' 或 pip install openai langchain-openai"
+            "Embeddings 需安装: pip install -e '.[openai]' 或 pip install openai langchain-openai"
         ) from e
     return OpenAIEmbeddingsAdapter(model=model, api_key=api_key or "no-key", base_url=base_url)
 
 
 def get_embeddings(embedding_type: Optional[str] = None) -> BaseEmbeddings:
-    """根据配置返回 Embeddings 实例，缺省为 local。"""
-    t = (embedding_type or getattr(settings, "embedding_type", None) or EMBEDDING_TYPE_LOCAL).strip().lower()
-    if t == EMBEDDING_TYPE_LOCAL:
-        model_name = getattr(settings, "local_embedding_model", None) or "BAAI/bge-small-zh-v1.5"
-        return LocalEmbeddingsAdapter(model_name=model_name)
+    """根据配置返回 Embeddings 实例，缺省为 api（单独 embedding 服务）。"""
+    t = (embedding_type or getattr(settings, "embedding_type", None) or EMBEDDING_TYPE_API).strip().lower()
     if t == EMBEDDING_TYPE_API:
         base_url = (getattr(settings, "embedding_base_url", None) or "").strip()
         if not base_url:
@@ -46,4 +41,4 @@ def get_embeddings(embedding_type: Optional[str] = None) -> BaseEmbeddings:
         )
         base_url = (base_url or "").strip() or None
         return _openai_compat_adapter(model=model, api_key=api_key, base_url=base_url)
-    raise ConfigError(f"不支持的 embedding_type: {t}，可选: local, openai, api")
+    raise ConfigError(f"不支持的 embedding_type: {t}，可选: openai, api")

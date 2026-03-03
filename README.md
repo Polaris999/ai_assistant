@@ -5,7 +5,7 @@
 ## 技术栈
 
 - **LangChain / LangGraph**：有状态 Agent 工作流（RAG → 解析意图 → 创建会议 → 安排提醒 → 回复润色）
-- **Core 胶水层**：LLM（vllm / openai / dify）、Embeddings（local / openai）、向量库（chroma / qdrant / weaviate）按配置切换
+- **Core 胶水层**：LLM（vllm / openai / dify）、Embeddings（openai / api 单独服务）、向量库（chroma / qdrant / weaviate）按配置切换
 - **RAG**：会议知识库，Embedding 与向量库由胶水层注入
 - **APScheduler**：定时在“开始前 X 分钟”触发提醒
 
@@ -82,7 +82,7 @@ pip install langgraph
 
 （依赖解析可能需 1～3 分钟，请等待完成。若仍失败，可新建虚拟环境后执行 `pip install -r requirements.txt`。）
 
-3. **胶水层**：LLM_TYPE 对应配置 OPENAI_API_KEY / VLLM_BASE_URL / DIFY_API_KEY；Embeddings 可选 local（`.[local]`）或 openai；向量库见 `VECTOR_STORE_TYPE`。  
+3. **胶水层**：LLM_TYPE 对应配置 OPENAI_API_KEY / VLLM_BASE_URL / DIFY_API_KEY；Embeddings 用单独服务（api 或 openai），配置 EMBEDDING_BASE_URL / OPENAI_*；向量库见 `VECTOR_STORE_TYPE`。  
 4. **回复润色**：可选 `REPLY_LLM_TYPE`，不设则直接返回模板文案。
 
 ## 使用方式
@@ -152,6 +152,10 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 - **优雅关闭**：lifespan 关闭时自动调用 `ReminderScheduler.shutdown()`，等待进行中任务结束。
 - **健康检查**：`GET /api/v1/health` 返回 `status`、`version`、`checks`，可用于探针与版本查看。
 - **全局异常**：未捕获异常统一返回 500 + `INTERNAL_ERROR`，仅记录服务端日志，不向客户端暴露堆栈。
+
+## 常见问题
+
+- **WinError 1114 / c10.dll 初始化失败**：若仅使用 vllm + 单独 embedding 服务（不跑本地模型），本机无需 PyTorch。某依赖会间接加载 torch 导致报错，可先卸载：`pip uninstall torch -y`，再启动应用。
 
 ## 扩展建议
 

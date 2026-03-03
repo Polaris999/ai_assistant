@@ -19,7 +19,7 @@ class OpenAIEmbeddingsAdapter(BaseEmbeddings):
         self._embeddings = OpenAIEmbeddings(
             model=model,
             api_key=api_key or None,
-            openai_api_base=base_url or None,
+            base_url=base_url,
             **kwargs,
         )
 

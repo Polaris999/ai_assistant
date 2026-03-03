@@ -107,7 +107,7 @@
 
 - **目的**：统一多后端，业务只依赖 `BaseLLM.invoke()`，便于切换与测试。
 - **LLM**：`core/llm/base.py` 定义 `BaseLLM`；`factory.get_llm(llm_type)` 按 `LLM_TYPE` 返回 vllm / openai / dify 适配器。
-- **Embeddings**：`core/embeddings` 按 `EMBEDDING_TYPE` 返回 local / openai，供 RAG 使用。向量库由 `core/vectorstore/factory.get_vector_store` 按 `VECTOR_STORE_TYPE` 返回 chroma / qdrant / weaviate。
+- **Embeddings**：`core/embeddings` 按 `EMBEDDING_TYPE` 返回 openai / api（单独 embedding 服务），供 RAG 使用。向量库由 `core/vectorstore/factory.get_vector_store` 按 `VECTOR_STORE_TYPE` 返回 chroma / qdrant / weaviate。
 
 ### 4.2 配置与 Prompt 配置化
 

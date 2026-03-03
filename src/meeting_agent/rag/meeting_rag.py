@@ -52,10 +52,7 @@ class MeetingRAG:
             try:
                 self._embeddings = get_embeddings()
             except (ConfigError, ImportError) as e:
-                logger.warning(
-                    "RAG 降级为无向量检索（不崩溃）: %s；若需本地向量检索请安装: pip install -e \".[local]\"",
-                    e,
-                )
+                logger.warning("RAG 无向量检索: %s；需配置 EMBEDDING_BASE_URL（单独 embedding 服务）", e)
                 self._no_rag = True
                 return None
         try:
@@ -66,7 +63,7 @@ class MeetingRAG:
                 persist_dir=str(self.persist_dir),
             )
         except (ConfigError, ImportError) as e:
-            logger.warning("RAG 降级为无向量检索（不崩溃）: %s", e)
+            logger.warning("RAG 无向量检索: %s", e)
             self._no_rag = True
             return None
         return self._vector_store
@@ -83,10 +80,7 @@ class MeetingRAG:
             vs.add_documents(chunks)
             logger.info("RAG 添加 %s 个 chunk", len(chunks))
         except ImportError as e:
-            logger.warning(
-                "RAG 降级为无向量检索（不崩溃）: %s；若需本地向量检索请安装: pip install -e \".[local]\"",
-                e,
-            )
+            logger.warning("RAG 无向量检索: %s；需配置 EMBEDDING_BASE_URL（单独 embedding 服务）", e)
             self._no_rag = True
             self._vector_store = None
 

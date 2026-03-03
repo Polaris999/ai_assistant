@@ -53,7 +53,7 @@
 ## 6. 业内通用做法对齐
 
 - **LLM 胶水层**：vllm / openai / dify 按配置切换；vllm 使用 `VLLM_BASE_URL`。
-- **Embeddings / 向量库**：Embeddings 为 local / openai；向量库为 chroma / qdrant / weaviate，均按配置切换。
+- **Embeddings / 向量库**：Embeddings 为 openai / api（单独服务）；向量库为 chroma / qdrant / weaviate，均按配置切换。
 
 ## 7. 建议后续优化（非必须）
 
