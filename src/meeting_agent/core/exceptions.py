@@ -1,9 +1,9 @@
-"""统一应用异常：便于 API 层映射为 HTTP 状态与 JSON body。"""
+"""应用异常：code/message/details，可序列化为 API 响应。"""
 from typing import Any, Optional
 
 
 class AppException(Exception):
-    """业务/系统异常基类，含 code、message、details，可序列化为 API 响应。"""
+    """异常基类。"""
 
     def __init__(
         self,
@@ -21,21 +21,21 @@ class AppException(Exception):
 
 
 class ConfigError(AppException):
-    """配置缺失或非法（如未配置 API Key）。"""
+    """配置缺失或非法。"""
 
     def __init__(self, message: str, details: Optional[dict] = None):
         super().__init__(message, code="CONFIG_ERROR", details=details)
 
 
 class ValidationError(AppException):
-    """请求参数校验失败。"""
+    """参数校验失败。"""
 
     def __init__(self, message: str, details: Optional[dict] = None):
         super().__init__(message, code="VALIDATION_ERROR", details=details)
 
 
 class LLMError(AppException):
-    """LLM 调用失败或返回异常。"""
+    """LLM 调用失败。"""
 
     def __init__(self, message: str, details: Optional[dict] = None):
         super().__init__(message, code="LLM_ERROR", details=details)

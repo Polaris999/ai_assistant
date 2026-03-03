@@ -1,4 +1,4 @@
-"""Embeddings 胶水层：openai | api（单独 embedding 服务，OpenAI 兼容接口）。"""
+"""Embeddings 工厂：openai | api。"""
 from typing import Optional
 
 from meeting_agent.config import settings
@@ -20,7 +20,7 @@ def _openai_compat_adapter(model: str, api_key: str, base_url: Optional[str]):
 
 
 def get_embeddings(embedding_type: Optional[str] = None) -> BaseEmbeddings:
-    """根据配置返回 Embeddings 实例，缺省为 api（单独 embedding 服务）。"""
+    """按配置返回 Embeddings，默认 api。"""
     t = (embedding_type or getattr(settings, "embedding_type", None) or EMBEDDING_TYPE_API).strip().lower()
     if t == EMBEDDING_TYPE_API:
         base_url = (getattr(settings, "embedding_base_url", None) or "").strip()

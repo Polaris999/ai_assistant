@@ -36,12 +36,16 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动时配置可观测、创建 Agent 并放入 app.state；失败时使用占位（提示原始错误）。"""
+    """可观测、配置校验（仅打日志）、创建 Agent；失败则占位。"""
     if getattr(settings, "langchain_tracing_enabled", False):
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
         if getattr(settings, "langchain_project", ""):
             os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
         logger.info("LangSmith 追踪已开启，项目名: %s", getattr(settings, "langchain_project", "meeting-agent"))
+    from meeting_agent.config.validation import validate_settings
+    errs = validate_settings()
+    if errs:
+        logger.warning("配置校验未通过: %s", errs)
     from meeting_agent.api.agent_bootstrap import create_agent_or_placeholder
     app.state.agent = create_agent_or_placeholder()
     yield

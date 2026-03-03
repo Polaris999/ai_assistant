@@ -14,14 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """
-    配置项与可选项说明：
-
-    - LLM：llm_type 可选 vllm | openai | dify；reply_llm_type 为空则不润色。
-    - Embeddings：embedding_type 可选 openai | api（api=单独 embedding 服务，EMBEDDING_BASE_URL）。
-    - 向量库：vector_store_type 可选 chroma | qdrant | weaviate。
-    - 各 type 对应下方同名分组配置；未用到的分组可留空。
-    """
+    """LLM/Embeddings/向量库按 type 切换，见字段注释。"""
     model_config = SettingsConfigDict(
         env_file=str(_ROOT / ".env"),
         env_file_encoding="utf-8",
@@ -63,6 +56,10 @@ class Settings(BaseSettings):
     weaviate_url: str = "http://localhost:8080"
     weaviate_api_key: str = ""
     weaviate_text_key: str = "content"
+
+    # --- API 限制 ---
+    api_book_text_max_length: int = 2000  # 文本预定会议描述最大字符数
+    api_voice_max_bytes: int = 10 * 1024 * 1024  # 语音上传最大字节数（默认 10MB）
 
     # --- 其他 ---
     local_whisper_model: str = "base"  # 语音转文字本地模型（faster-whisper）
