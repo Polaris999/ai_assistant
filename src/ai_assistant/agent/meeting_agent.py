@@ -2,6 +2,7 @@
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 
@@ -17,7 +18,8 @@ from ai_assistant.agent.intent import (
 from ai_assistant.agent.state import MeetingAgentState
 from ai_assistant.config import settings
 from ai_assistant.config.prompt_loader import get_parse_intent_template, get_reply_polish_template
-from ai_assistant.core.exceptions import ConfigError
+from ai_assistant.core.exceptions import AppException, ConfigError
+from ai_assistant.core.serialization import to_json_serializable
 from ai_assistant.core.llm.base import BaseLLM
 from ai_assistant.core.llm.factory import get_llm
 from ai_assistant.models.meeting import MeetingIntent
@@ -59,7 +61,9 @@ def _parse_intent_node(state: MeetingAgentState) -> dict[str, Any]:
     text = ""
     try:
         t0 = time.perf_counter()
-        text = llm.invoke(prompt, system=system, temperature=0)
+        timeout_sec = getattr(settings, "llm_request_timeout_seconds", 120) or 120
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            text = ex.submit(lambda: llm.invoke(prompt, system=system, temperature=0)).result(timeout=timeout_sec)
         logger.debug("parse_intent llm %.0fms", (time.perf_counter() - t0) * 1000)
         text = (text or "").strip()
         if not text:
@@ -103,6 +107,13 @@ def _parse_intent_node(state: MeetingAgentState) -> dict[str, Any]:
             remind_minutes_before=int(data.get("remind_minutes_before", default_minutes)),
         )
         return {"intent": intent, "error": None}
+    except FuturesTimeoutError:
+        logger.warning("parse_intent LLM 调用超时")
+        return {
+            "intent": None,
+            "error": "LLM_ERROR",
+            "reply": "服务响应超时，请稍后重试。",
+        }
     except Exception as e:
         logger.warning("解析意图失败: %s", e)
         logger.debug("parse_intent 原始返回: %.300s", (text or "")[:300], exc_info=True)
@@ -153,7 +164,7 @@ def _create_booking_node(state: MeetingAgentState) -> dict[str, Any]:
         return {"booking": booking, "reply": reply, "error": None}
     except Exception as e:
         logger.exception("创建会议失败: %s", e)
-        return {"booking": None, "error": str(e), "reply": "创建会议失败，请稍后重试。"}
+        return {"booking": None, "error": "BOOK_ERROR", "reply": "创建会议失败，请稍后重试。"}
 
 
 def _reply_node(state: MeetingAgentState) -> dict[str, Any]:
@@ -199,7 +210,16 @@ class _UnreadyAgentRunner:
             if not self._config_message.strip()
             else f"服务未就绪：{self._config_message}"
         )
-        return {"reply": reply, "booking": None, "error": "CONFIG_ERROR"}
+        raise AppException(
+            "success",
+            code="CONFIG_ERROR",
+            details={
+                "reply": reply,
+                "booking": None,
+                "error": "CONFIG_ERROR",
+                "conversation_id": kwargs.get("conversation_id") or "",
+            },
+        )
 
 
 def create_meeting_agent_graph(
@@ -265,7 +285,6 @@ def create_meeting_agent_graph(
             self, user_input: str, user_id: str = "default", request_id: Optional[str] = None, **kwargs: Any
         ) -> dict[str, Any]:
             t0 = time.perf_counter()
-            rag.init_default_knowledge()
             initial: MeetingAgentState = {
                 "user_input": user_input,
                 "rag_context": "",
@@ -287,9 +306,24 @@ def create_meeting_agent_graph(
                 config["metadata"] = {"request_id": request_id}
             result = self._graph.invoke(initial, config=config)
             logger.info("agent invoke %.0fms", (time.perf_counter() - t0) * 1000)
+            err = result.get("error")
+            # 空输入等软错误直接返回友好回复，与 Tool Agent 行为一致
+            if err == "用户输入为空" and result.get("reply"):
+                return {"reply": result["reply"], "booking": None}
+            if err is not None:
+                code = err if err in ("RUNTIME_ERROR", "CONFIG_ERROR") else "BUSINESS_ERROR"
+                raise AppException(
+                    "success",
+                    code=code,
+                    details={
+                        "reply": result.get("reply", "处理失败"),
+                        "booking": to_json_serializable(result.get("booking")),
+                        "error": err,
+                        "conversation_id": kwargs.get("conversation_id") or "",
+                    },
+                )
             return {
                 "reply": result.get("reply", ""),
                 "booking": result.get("booking"),
-                "error": result.get("error"),
             }
     return AgentRunner(compiled, store, scheduler, rag, llm, reply_llm)

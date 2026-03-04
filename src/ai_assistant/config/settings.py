@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     prompt_parse_intent_path: str = ""  # 空=包内默认
     prompt_reply_polish_path: str = ""
+    prompt_tool_agent_system_path: str = ""  # 空=包内 tool_agent_system.txt
+    llm_request_timeout_seconds: int = 120  # LLM 单次调用超时（秒），超时后抛出 LLM_ERROR
     langchain_tracing_enabled: bool = False
     langchain_project: str = "ai-assistant"
     use_tool_agent: bool = True  # True=Agent+Tools 调用 IMeetingService；False=原 LangGraph 图
@@ -93,6 +95,7 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_url: str = ""  # 可选：直接写 redis://[:password@]host:port/db，优先于 host/port/password
     conversation_store_ttl_seconds: int = 86400  # Redis 会话 key 过期时间（秒），默认 24 小时
+    conversation_max_messages: int = 20  # 每会话保留最近消息条数（user+assistant 合计），供多轮上下文
 
     def get_redis_url(self) -> str:
         """用于会话存储的 Redis 连接 URL；空串表示未配置，使用内存存储。"""

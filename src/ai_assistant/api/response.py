@@ -18,6 +18,8 @@ APP_EXCEPTION_MAP = {
     "CONFIG_ERROR": (CODE_SERVICE_UNAVAILABLE, 503),
     "RUNTIME_ERROR": (CODE_SERVICE_UNAVAILABLE, 503),
     "LLM_ERROR": (CODE_INTERNAL_ERROR, 500),
+    "BUSINESS_ERROR": (CODE_BUSINESS_ERROR, 200),
+    "SERVICE_UNAVAILABLE": (CODE_SERVICE_UNAVAILABLE, 503),
 }
 
 
@@ -50,14 +52,14 @@ def json_response(
     )
 
 
-def success(data: Any = None, request_id: str = "") -> JSONResponse:
-    """成功响应。"""
-    return json_response(CODE_SUCCESS, "success", data, request_id, status_code=200)
+def success(data: Any = None, request_id: str = "", status_code: int = 200) -> JSONResponse:
+    """成功响应。API 层仅包装 success，错误由抛异常 + 全局处理器返回。"""
+    return json_response(CODE_SUCCESS, "success", data, request_id, status_code=status_code)
 
 
 def app_exception_to_code_status(exc_code: str) -> tuple[int, int]:
-    """AppException.code -> (body code, http status)。"""
+    """AppException.code -> (body code, http status)。未知 code 按服务端错误返回 500。"""
     return APP_EXCEPTION_MAP.get(
         exc_code,
-        (CODE_VALIDATION_ERROR, 400),
+        (CODE_INTERNAL_ERROR, 500),
     )

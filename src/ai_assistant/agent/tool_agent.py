@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Optional, Tuple
@@ -21,7 +22,8 @@ from ai_assistant.agent.tools import (
 )
 from ai_assistant.agent.protocol import AgentRunner as AgentRunnerProtocol
 from ai_assistant.core.conversation import get_conversation_store
-from ai_assistant.core.exceptions import ConfigError
+from ai_assistant.core.exceptions import AppException, ConfigError
+from ai_assistant.core.serialization import to_json_serializable
 from ai_assistant.core.llm.base import BaseLLM
 from ai_assistant.core.llm.factory import get_llm
 
@@ -73,18 +75,19 @@ def _log_chat_request(
     logger.info("observability %s", json.dumps(payload, ensure_ascii=False))
 
 
-def _build_system_prompt(capabilities: list[Any]) -> str:
+def _get_max_days_ahead() -> int:
+    """从会议规则配置读取「最多提前天数」，供 system 与回退文案使用；失败时默认 7。"""
     try:
         from ai_assistant.config.meeting_rules_config import meeting_rules_config
-        max_days = meeting_rules_config.meeting_max_days_ahead
+        return meeting_rules_config.meeting_max_days_ahead
     except Exception:
-        max_days = 7
-    intro = f"""你是助手。根据用户输入（及最近对话上下文），选择 exactly 一个操作并用 JSON 输出。
-- 若用户问「查询会议室」「有哪些会议室」「会议室有哪些」「查会议室」等，必须用 query_meeting_rooms，arguments 可为 {{}} 或 {{"query": "用户原话"}}，不要用 reply_only。
-- 若用户要「订会」且说了时间或相对时间（如「8天后」「明天下午3点」「下周三」），请推断出 start_time（ISO 格式，如 2026-03-10T14:00:00）并选用 book_meeting；主题/时长未说时用默认（title="未命名会议", duration_minutes=60）。超过 {max_days} 天的日期也填推断的 start_time，系统会返回「最多提前{max_days}天」的规则提示。
-- 若用户要「订会」但完全未说时间（如只说「订个会」「帮我订会议室」），用 reply_only 追问（例如「请说明会议主题、开始时间和时长；预约规则为最多提前 {max_days} 天。」）。
-- 若用户要「取消」会议（如：取消刚定的、取消刚才的、不订了、取消预约），必须用 cancel_meeting，arguments 可为 {{}}，系统会按本会话上一笔预定取消；不要用 reply_only 让用户再提供会议主题或时间。
-"""
+        return 7
+
+
+def _build_system_prompt(capabilities: list[Any]) -> str:
+    from ai_assistant.config.prompt_loader import get_tool_agent_system_intro
+    max_days = _get_max_days_ahead()
+    intro = get_tool_agent_system_intro(max_days=max_days)
     return intro + get_tools_schema_for_prompt(capabilities)
 
 
@@ -115,7 +118,7 @@ def _build_user_prompt(
 
 
 def _looks_like_query_rooms(user_input: str) -> bool:
-    """解析失败时用于回退：若像「查会议室」则走 query_meeting_rooms。"""
+    """解析失败时用于回退：若像「查会议室」则走 query_meeting_rooms。关键词覆盖「查/有哪些/列表」等常见说法，避免误走 reply_only。"""
     if not (user_input or "").strip():
         return False
     s = (user_input or "").strip()
@@ -126,7 +129,7 @@ def _looks_like_query_rooms(user_input: str) -> bool:
 
 
 def _looks_like_book_meeting_with_time(user_input: str) -> bool:
-    """解析失败时用于回退：若像「订会且带了时间」则走 book_meeting（再推断 start_time）。"""
+    """解析失败时用于回退：若同时包含「订/预约」与「时间」类词则走 book_meeting，由 _infer_start_time_from_relative 推断 start_time。"""
     if not (user_input or "").strip():
         return False
     s = (user_input or "").strip()
@@ -136,7 +139,7 @@ def _looks_like_book_meeting_with_time(user_input: str) -> bool:
 
 
 def _infer_start_time_from_relative(user_input: str, now: datetime) -> Tuple[Optional[datetime], bool]:
-    """从「N天后」「明天」「后天」等推断 start_time，默认 14:00。返回 (datetime, True) 或 (None, False)。"""
+    """从「N天后」「明天」「后天」等推断 start_time。默认 14:00 以便未说具体钟点时仍有合理时间。返回 (datetime, True) 或 (None, False)。"""
     s = (user_input or "").strip()
     m = re.search(r"(\d+)\s*天\s*后", s)
     if m:
@@ -178,6 +181,7 @@ class ToolAgentRunner:
         request_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
         history: Optional[list[dict[str, str]]] = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         user_input = (user_input or "").strip()
         if not user_input:
@@ -191,13 +195,41 @@ class ToolAgentRunner:
         with _span_ctx(tracer, "tool_agent.invoke") as agent_span:
             if agent_span and hasattr(agent_span, "set_attribute") and request_id:
                 agent_span.set_attribute("request_id", request_id)
+            timeout_sec = 120
             try:
+                from ai_assistant.config import settings
+                timeout_sec = getattr(settings, "llm_request_timeout_seconds", 120) or 120
                 with _span_ctx(tracer, "llm.invoke"):
-                    text = self._llm.invoke(prompt, system=self._system_prompt, temperature=0)
+                    with ThreadPoolExecutor(max_workers=1) as ex:
+                        text = ex.submit(
+                            lambda: self._llm.invoke(prompt, system=self._system_prompt, temperature=0)
+                        ).result(timeout=timeout_sec)
+            except FuturesTimeoutError:
+                logger.warning("Tool Agent LLM 调用超时: %ss", timeout_sec)
+                _log_chat_request(request_id, "", (time.perf_counter() - t0) * 1000, "LLM_ERROR", False)
+                raise AppException(
+                    "success",
+                    code="LLM_ERROR",
+                    details={
+                        "reply": "服务响应超时，请稍后重试。",
+                        "booking": None,
+                        "error": "LLM_ERROR",
+                        "conversation_id": conversation_id or "",
+                    },
+                )
             except Exception as e:
                 logger.warning("Tool Agent LLM 调用失败: %s", e)
                 _log_chat_request(request_id, "", (time.perf_counter() - t0) * 1000, "LLM_ERROR", False)
-                return {"reply": "服务暂时不可用，请稍后重试。", "booking": None, "error": "LLM_ERROR"}
+                raise AppException(
+                    "success",
+                    code="LLM_ERROR",
+                    details={
+                        "reply": "服务暂时不可用，请稍后重试。",
+                        "booking": None,
+                        "error": "LLM_ERROR",
+                        "conversation_id": conversation_id or "",
+                    },
+                )
             logger.debug("tool_agent llm %.0fms", (time.perf_counter() - t0) * 1000)
 
             llm_output_snippet = None
@@ -229,7 +261,8 @@ class ToolAgentRunner:
                         logger.info("Tool Agent 解析失败，按「订会+时间」回退为 book_meeting")
                     else:
                         tool_name = TOOL_REPLY_ONLY
-                        arguments = {"reply": "请说明具体日期和时间，例如「明天下午3点」或「8天后上午10点」；预约规则为最多提前 7 天。"}
+                        max_days = _get_max_days_ahead()
+                        arguments = {"reply": f"请说明具体日期和时间，例如「明天下午3点」或「8天后上午10点」；预约规则为最多提前 {max_days} 天。"}
                 else:
                     logger.warning("Tool Agent 解析 LLM 输出失败，回退为 reply_only")
                     tool_name = TOOL_REPLY_ONLY
@@ -249,6 +282,19 @@ class ToolAgentRunner:
         _log_chat_request(
             request_id, tool_name, duration_ms, result.get("error"), parse_fallback, llm_output_snippet
         )
+        err = result.get("error")
+        if err is not None:
+            code = err if err in ("RUNTIME_ERROR", "CONFIG_ERROR") else "BUSINESS_ERROR"
+            raise AppException(
+                "success",
+                code=code,
+                details={
+                    "reply": result.get("reply", "处理失败"),
+                    "booking": to_json_serializable(result.get("booking")),
+                    "error": err,
+                    "conversation_id": conversation_id or "",
+                },
+            )
         return result
 
 

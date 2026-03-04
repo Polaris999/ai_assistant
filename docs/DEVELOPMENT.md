@@ -84,7 +84,7 @@ pytest tests/ -v --tb=short
 | `models.meeting` | MeetingIntent、MeetingBooking |
 | `rag.meeting_rag` | 会议知识 RAG、默认知识 |
 | `services` | MeetingStore、ReminderScheduler |
-| `api.controllers.chat` | POST /chat、/chat/voice（统一对话入口） |
+| `api.routers.chat` | POST /api/v1/chat、/api/v1/chat/voice（统一对话入口） |
 | `agent.capabilities` | 能力层：meeting（会议预定）、ops 占位（运维工单）；各能力提供 schema_fragment、tool_names、execute |
 
 ### 4.1 能力扩展（如运维工单）

@@ -3,7 +3,7 @@ import logging
 from typing import Any, Callable, Optional
 
 from ai_assistant.agent.protocol import AgentRunner
-from ai_assistant.core.exceptions import ConfigError
+from ai_assistant.core.exceptions import AppException, ConfigError
 from ai_assistant.core.helper import mask_secret
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,16 @@ def _placeholder(reason: str) -> AgentRunner:
         def invoke(
             self, user_input: str, user_id: str = "default", request_id: Optional[str] = None, **kwargs: Any
         ) -> dict[str, Any]:
-            return {"reply": reason, "booking": None, "error": "RUNTIME_ERROR"}
+            raise AppException(
+                "success",
+                code="RUNTIME_ERROR",
+                details={
+                    "reply": reason,
+                    "booking": None,
+                    "error": "RUNTIME_ERROR",
+                    "conversation_id": kwargs.get("conversation_id") or "",
+                },
+            )
 
     return _Placeholder()  # type: ignore[return-value]
 

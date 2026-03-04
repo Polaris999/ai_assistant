@@ -11,8 +11,6 @@ import threading
 import uuid
 from typing import Any, Optional
 
-logger = None  # lazy init to avoid circular import
-
 # 单条消息：role + content
 MessageDict = dict[str, str]
 
@@ -30,10 +28,9 @@ class ConversationStore:
         self._max = max_messages_per_conversation
 
     def get_or_create_id(self, conversation_id: Optional[str] = None) -> str:
-        """若未传则生成新 id，否则原样返回（不校验是否存在）。"""
-        if conversation_id and (conversation_id or "").strip():
-            return (conversation_id or "").strip()
-        return str(uuid.uuid4())
+        """若未传或为空则生成新 id，否则返回去除首尾空白后的 id（不校验是否存在）。"""
+        cid = (conversation_id or "").strip()
+        return cid if cid else str(uuid.uuid4())
 
     def get_recent(self, conversation_id: str, limit: Optional[int] = None) -> list[MessageDict]:
         """返回该会话最近 limit 条消息（从旧到新）；默认不超过配置的 max。"""
@@ -165,13 +162,14 @@ def get_conversation_store() -> ConversationStore:
     with _store_lock:
         if _conversation_store is None:
             from ai_assistant.config.settings import settings
+            max_msgs = getattr(settings, "conversation_max_messages", None) or DEFAULT_MAX_MESSAGES_PER_CONVERSATION
             redis_url = settings.get_redis_url()
             if redis_url:
                 _conversation_store = RedisConversationStore(
                     redis_url=redis_url,
-                    max_messages_per_conversation=DEFAULT_MAX_MESSAGES_PER_CONVERSATION,
+                    max_messages_per_conversation=max_msgs,
                     ttl_seconds=settings.conversation_store_ttl_seconds,
                 )
             else:
-                _conversation_store = ConversationStore()
+                _conversation_store = ConversationStore(max_messages_per_conversation=max_msgs)
         return _conversation_store

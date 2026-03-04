@@ -1,4 +1,4 @@
-"""API 依赖：settings、Agent、知识库 RAG。"""
+"""API 依赖：供 FastAPI 路由通过 Depends() 注入 settings、Agent、request_id、知识库 RAG 等。"""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -18,6 +18,11 @@ def get_settings() -> Settings:
     return settings
 
 
+def get_request_id(request: Request) -> str:
+    """从中间件写入的 request.state 取 request_id，供响应与日志使用。"""
+    return getattr(request.state, "request_id", "") or ""
+
+
 def get_agent(request: Request) -> Any:
     """从 app.state 取 Agent，未设置时懒创建占位。"""
     agent = getattr(request.app.state, "agent", None)
@@ -28,12 +33,7 @@ def get_agent(request: Request) -> Any:
     return request.app.state.agent
 
 
-def get_meeting_rag(request: Request) -> MeetingRAG:
-    """供知识库 API 使用：默认会议库（向后兼容）。"""
-    return get_rag_by_kb_name(request, "meeting")
-
-
-def get_rag_by_kb_name(request: Request, kb_name: str) -> MeetingRAG:
+def get_rag_by_kb_name(request: Request, kb_name: str) -> "MeetingRAG":
     """按知识库名称返回 RAG 实例；kb_name 对应独立 collection（meeting -> meeting_knowledge，ops_ticket -> ops_ticket_knowledge）。"""
     from ai_assistant.rag.meeting_rag import MeetingRAG, collection_name_for
     kb_name = (kb_name or "meeting").strip().lower()

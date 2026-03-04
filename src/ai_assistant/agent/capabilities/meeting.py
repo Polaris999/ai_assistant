@@ -64,7 +64,9 @@ class MeetingCapability(BaseCapability):
                 self._max_days_ahead = max_days_ahead if max_days_ahead is not None else DEFAULT_MAX_DAYS_AHEAD
                 self._max_duration_minutes = max_duration_minutes if max_duration_minutes is not None else DEFAULT_MAX_DURATION_MINUTES
         else:
-            self._max_days_ahead = self._max_duration_minutes = 0
+            # 使用 rules_provider 时由 _get_rules() 动态获取，此处仅占位（不参与校验）
+            self._max_days_ahead = 0
+            self._max_duration_minutes = 0
 
     def schema_fragment(self) -> str:
         return _schema_fragment()

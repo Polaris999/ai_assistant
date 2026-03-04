@@ -20,7 +20,7 @@ pip install -e .
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- **API**：`POST /api/chat`、`POST /api/chat/voice`、`GET /api/health`；知识库按库名分（meeting / ops_ticket）：`GET /api/knowledge/bases`、`GET /api/knowledge?kb=`、`GET /api/knowledge/search?q=&kb=`、`POST /api/knowledge?kb=`、`DELETE /api/knowledge?kb=`，建议由网关限制为管理端
+- **API**（统一前缀 `/api/v1`）：`POST /api/v1/chat`、`POST /api/v1/chat/voice`、`GET /api/v1/health`；知识库：`GET /api/v1/knowledge/bases`、`GET /api/v1/knowledge?kb=`、`GET /api/v1/knowledge/search?q=&kb=`、`POST /api/v1/knowledge?kb=`、`DELETE /api/v1/knowledge?kb=`，建议由网关限制为管理端
 - **多轮会话**：首轮不传 `conversation_id`，响应 `data.conversation_id` 供下一轮携带；同会话内支持追问与补全（如先问「订个会」再补「明天下午3点」）。
 - **命令行**：`ai-assistant --text "明天下午3点开项目会，1小时，会议室A"` 或 `ai-assistant --voice path/to.wav`
 
@@ -44,7 +44,7 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 1agent/
 ├── src/ai_assistant/     # 主包
 │   ├── agent/            # Agent 协议（protocol.py）、Tool/LangGraph 实现、能力层（meeting、ops 占位）
-│   ├── api/              # controllers（chat/health/knowledge）、deps、response、middleware、agent_bootstrap
+│   ├── api/              # routers（chat/health/knowledge）、deps、response、middleware、agent_bootstrap
 │   ├── config/           # 配置、Prompt 加载、校验
 │   ├── core/             # LLM、Embeddings、向量库、异常、callbacks、conversation（会话/Redis）
 │   ├── framework/        # 可复用框架聚合导出

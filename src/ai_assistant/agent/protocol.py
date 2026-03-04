@@ -1,7 +1,8 @@
 """
 Agent 运行器协议与工具函数：所有 Agent 实现统一接口，便于 API、lifespan 与扩展。
 
-- 实现 invoke() 返回至少 reply/error，并提供 _scheduler 属性（无则 None），即可接入。
+- 实现 invoke() 成功时返回至少 reply（可含 booking 等）；有 error 时在内部抛 AppException，不返回 error 字段。
+- API 层直接调用 agent.invoke()，无需再判断 result.get("error")。
 - 可选：实现 is_ready()、warmup()；lifespan 会带超时调用 warmup，关闭时 shutdown _scheduler。
 """
 from __future__ import annotations
@@ -30,7 +31,7 @@ class AgentRunner(Protocol):
         request_id: Optional[str] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """执行一轮对话/任务，返回至少含 reply、error 的 dict；可含 booking、intent 等。"""
+        """执行一轮对话/任务；成功返回含 reply（可含 booking 等）的 dict，失败在内部抛 AppException。"""
         ...
 
     @property

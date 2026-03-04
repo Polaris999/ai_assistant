@@ -46,3 +46,17 @@ class NotFoundError(AppException):
 
     def __init__(self, message: str = "资源不存在", details: Optional[dict[str, Any]] = None):
         super().__init__(message, code="NOT_FOUND", details=details)
+
+
+class BusinessError(AppException):
+    """业务规则错误（如 agent 返回 error、参数非法等），HTTP 200 + body code 1。"""
+
+    def __init__(self, message: str = "success", details: Optional[dict[str, Any]] = None):
+        super().__init__(message, code="BUSINESS_ERROR", details=details or {})
+
+
+class ServiceUnavailableError(AppException):
+    """服务暂不可用（如依赖不可用、知识库未就绪），HTTP 503。"""
+
+    def __init__(self, message: str, details: Optional[dict[str, Any]] = None):
+        super().__init__(message, code="SERVICE_UNAVAILABLE", details=details)

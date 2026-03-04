@@ -1,9 +1,10 @@
-"""生产用中间件：请求 ID、安全头、请求日志、可选 OpenTelemetry span。"""
+"""生产用中间件：请求 ID、安全头、请求日志、可选 OpenTelemetry span。通过 register_all_middleware 统一注册，顺序为 CORS → Logging → Security → RequestID → 路由。"""
 import logging
 import time
 import uuid
-from typing import Callable
+from typing import Callable, List, Optional
 
+from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -53,7 +54,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                     if rid:
                         span.set_attribute("request_id", rid)
                 response = await call_next(request)
-        except Exception:
+        except (ImportError, AttributeError, TypeError) as e:
+            logger.debug("OpenTelemetry span 未使用，回退为无 span: %s", e)
             response = await call_next(request)
         duration_ms = (time.perf_counter() - start) * 1000
         request_id = getattr(request.state, "request_id", "")
@@ -66,3 +68,26 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             request_id or "-",
         )
         return response
+
+
+def register_all_middleware(
+    app: FastAPI,
+    *,
+    cors_origins: Optional[List[str]] = None,
+) -> None:
+    """
+    统一注册 API 中间件栈。请求处理顺序：CORS → Logging → Security → RequestID → 路由。
+    建议在 app 创建后、include_router 前调用。
+    """
+    app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestLoggingMiddleware)
+    if cors_origins:
+        from fastapi.middleware.cors import CORSMiddleware
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            allow_headers=["*"],
+        )

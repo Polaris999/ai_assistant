@@ -291,7 +291,7 @@ spec:
 1. **先起向量库**（若用 Qdrant/Weaviate）：`helm install qdrant ...`，确认 Pod 正常、6333/8080 可连。
 2. **再起 vLLM（LLM）**：确认 `/v1/chat/completions` 可调。
 3. **再起 Embedding**：确认 `/v1/embeddings` 可调（用 curl 或本应用里 `EMBEDDING_BASE_URL` 指向该服务）。
-4. **最后起 meeting-agent**：环境变量指向上面的 Service URL，健康检查 `GET /api/health` 中 `checks.agent` 为 `ok` 即表示连上 LLM/Embedding 并完成初始化。
+4. **最后起 meeting-agent**：环境变量指向上面的 Service URL，健康检查 `GET /api/v1/health` 中 `checks.agent` 为 `ok` 即表示连上 LLM/Embedding 并完成初始化。
 5. **配置校验**：启动前可用 `validate_settings()` 或 CLI（若实现 `--check-config`）检查必填项，避免缺配。
 
 按上述顺序在 K8s 里自建 vLLM、Embedding 与（可选）RAG 向量库，再部署本应用即可。若你提供当前集群的 namespace、是否用 Helm、是否 GPU 等信息，可以再写一版贴合你环境的 values 或清单片段。

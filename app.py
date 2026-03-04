@@ -16,19 +16,13 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from ai_assistant import __version__
-from ai_assistant.api.deps import get_agent
-from ai_assistant.api.middleware import (
-    REQUEST_ID_HEADER,
-    RequestIDMiddleware,
-    RequestLoggingMiddleware,
-    SecurityHeadersMiddleware,
-)
+from ai_assistant.api.middleware import REQUEST_ID_HEADER, register_all_middleware
 from ai_assistant.api.response import (
     body as response_body,
     app_exception_to_code_status,
     CODE_INTERNAL_ERROR,
 )
-from ai_assistant.api.controllers import router as api_router
+from ai_assistant.api.routers import api_v1_router
 from ai_assistant.config import get_profile, settings
 from ai_assistant.core.exceptions import AppException
 
@@ -87,20 +81,8 @@ app = FastAPI(
     openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
 
-if _CORS_ORIGINS:
-    from fastapi.middleware.cors import CORSMiddleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
-    )
-app.add_middleware(RequestLoggingMiddleware)
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(RequestIDMiddleware)
-
-app.include_router(api_router)
+register_all_middleware(app, cors_origins=_CORS_ORIGINS if _CORS_ORIGINS else None)
+app.include_router(api_v1_router)
 
 
 def _response_headers(request_id: str):

@@ -1,5 +1,5 @@
 # config/prompt_loader.py
-"""从配置或默认文件加载 Prompt 模板，支持按环境覆盖。"""
+"""从配置或默认文件加载 Prompt 模板，支持按环境覆盖。模板在进程内缓存，修改文件或配置后需重启进程生效。"""
 import logging
 from pathlib import Path
 from typing import Optional
@@ -15,6 +15,7 @@ _PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 _ROOT = _PROMPTS_DIR.parent.parent.parent.parent
 _parse_intent_cache: Optional[PromptTemplate] = None
 _reply_polish_cache: Optional[PromptTemplate] = None
+_tool_agent_system_cache: Optional[str] = None
 
 
 def _load_template(path: Path) -> str:
@@ -63,3 +64,22 @@ def get_reply_polish_template() -> PromptTemplate:
         content = _load_template(_PROMPTS_DIR / "reply_polish.txt")
     _reply_polish_cache = PromptTemplate.from_template(content)
     return _reply_polish_cache
+
+
+def get_tool_agent_system_intro(max_days: int = 7) -> str:
+    """Tool Agent 的 system 提示词前半段（规则说明）。优先 PROMPT_TOOL_AGENT_SYSTEM_PATH，否则使用包内默认。占位符 {max_days} 由参数注入。"""
+    global _tool_agent_system_cache
+    if _tool_agent_system_cache is not None:
+        return _tool_agent_system_cache.format(max_days=max_days)
+    path_conf = getattr(settings, "prompt_tool_agent_system_path", "").strip()
+    try:
+        path = _resolve_path(path_conf) if path_conf else _PROMPTS_DIR / "tool_agent_system.txt"
+        if path_conf and not path.exists():
+            logger.warning("自定义 tool_agent_system 路径不存在 %s，使用默认", path)
+            path = _PROMPTS_DIR / "tool_agent_system.txt"
+        content = _load_template(path)
+    except Exception as e:
+        logger.warning("加载 tool_agent_system 模板失败，使用默认: %s", e)
+        content = _load_template(_PROMPTS_DIR / "tool_agent_system.txt")
+    _tool_agent_system_cache = content
+    return _tool_agent_system_cache.format(max_days=max_days)

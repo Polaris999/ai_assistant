@@ -43,7 +43,7 @@
 | rag | 向量库封装、默认会议知识、检索上下文 |
 | services | IMeetingService、MeetingStore、ReminderScheduler、meeting_rules（规则来源） |
 | agent | AgentRunner 协议（protocol.py）、Tool Agent、能力层（capabilities：Protocol + BaseCapability）、tools 聚合；能力依赖由组合根注入 |
-| api | 路由（/api/chat、/api/chat/voice、/api/health、/api/knowledge 等）、response、middleware、agent_bootstrap（组合根） |
+| api | 路由（controllers）、response、middleware、agent_bootstrap（组合根）；**应用层** api/services（如 ChatService）做对话用例编排，Controller 仅做参数校验与 HTTP，与 Dify 等「Controller 薄 + Service 编排」一致 |
 
 ---
 
@@ -84,12 +84,12 @@
 
 - **按库名分集合**：不采用「单集合 + metadata 分类」，而是**每个业务独立 collection**（与 [Langchain-Chatchat 多知识库](https://github.com/chatchat-space/Langchain-Chatchat/blob/master/libs/chatchat-server/chatchat/server/api_server/kb_routes.py) 一致）。会议用 `meeting_knowledge`，运维工单用 `ops_ticket_knowledge`，检索/清空互不影响；新增业务时在 `rag/meeting_rag.py` 的 `ALLOWED_KB_NAMES` 增加名称即可。
 - **启动**：仅会议库有默认知识，由 Agent warmup 调用 `init_default_knowledge()` 写入；运维工单库无默认数据，需通过 API 或后续能力录入。
-- **接口**（所有 CRUD 支持 query 参数 `kb`，默认 `meeting`）：
-  - `GET /api/knowledge/bases` — 已登记知识库列表（如 meeting、ops_ticket）
-  - `GET /api/knowledge?kb=` — 统计指定 kb 的 chunk 数量
-  - `GET /api/knowledge/search?q=&kb=` — 检索预览
-  - `POST /api/knowledge?kb=` — 追加文档
-  - `DELETE /api/knowledge?kb=` — 清空指定 kb（Chroma 支持）
+- **接口**（所有 CRUD 支持 query 参数 `kb`，默认 `meeting`，前缀 `/api/v1`）：
+  - `GET /api/v1/knowledge/bases` — 已登记知识库列表（如 meeting、ops_ticket）
+  - `GET /api/v1/knowledge?kb=` — 统计指定 kb 的 chunk 数量
+  - `GET /api/v1/knowledge/search?q=&kb=` — 检索预览
+  - `POST /api/v1/knowledge?kb=` — 追加文档
+  - `DELETE /api/v1/knowledge?kb=` — 清空指定 kb（Chroma 支持）
 - **鉴权**：应用内不实现鉴权，建议由网关将上述接口限制为管理端或授权调用。
 
 ---

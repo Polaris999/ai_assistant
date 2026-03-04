@@ -61,7 +61,7 @@ pip install -e .
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- **API**：`POST /api/chat`、`POST /api/chat/voice`、`GET /api/health`。
+- **API**：`POST /api/v1/chat`、`POST /api/v1/chat/voice`、`GET /api/v1/health`。
 - **命令行**：`ai-assistant --text "会议描述"` 或 `ai-assistant --voice path/to.wav`。
 
 ### 自检命令（可选）
@@ -81,7 +81,7 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 - **请求 ID**：中间件为每个请求生成 `request_id`，响应头与日志携带，便于排查。
 - **安全头**：中间件统一加安全相关响应头（如 X-Content-Type-Options 等）。
 - **优雅关闭**：FastAPI lifespan 在关闭时对 Agent 的 `_scheduler` 执行 `shutdown(wait=True)`，避免任务丢失。
-- **健康检查**：`GET /api/health` 可做就绪探针；若实现 `is_ready(agent)`，会反映 Agent 与调度器状态。
+- **健康检查**：`GET /api/v1/health` 可做就绪探针；若实现 `is_ready(agent)`，会反映 Agent 与调度器状态。
 - **全局异常**：未捕获异常由 app 全局 handler 统一为 `code` / `msg` / `data`，并带 `request_id`。
 
 多实例时，当前预定与提醒为进程内存储与调度，重启会丢失；若需持久化与分布式提醒，需替换 MeetingStore 与 ReminderScheduler 实现。
@@ -108,7 +108,7 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 |------|------|------|
 | **请求可观测** | ✅ | X-Request-ID、请求日志（method/path/status/duration）、全局异常带 request_id |
 | **安全头** | ✅ | X-Content-Type-Options、X-Frame-Options、X-XSS-Protection |
-| **健康与就绪** | ✅ | GET /api/health，含 agent 状态，可做 K8s 就绪/存活探针 |
+| **健康与就绪** | ✅ | GET /api/v1/health，含 agent 状态，可做 K8s 就绪/存活探针 |
 | **优雅关闭** | ✅ | lifespan 结束时 scheduler.shutdown(wait=True) |
 | **配置与密钥** | ✅ | Profile（dev/test/prod）、.env + 环境变量、无硬编码密钥 |
 | **会话存储** | ✅ | 可选 Redis，多实例共享会话；未配置则进程内 |
