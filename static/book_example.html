@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>会议预定示例 - /api/v1/book</title>
+  <title>对话示例 - /api/v1/chat</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 560px; margin: 2rem auto; padding: 0 1rem; }
     h1 { font-size: 1.25rem; }
@@ -16,8 +16,8 @@
   </style>
 </head>
 <body>
-  <h1>会议预定示例 (POST /api/v1/book)</h1>
-  <p>填写会议描述后提交，会调用 <code>POST /api/v1/book</code>。</p>
+  <h1>对话示例 (POST /api/v1/chat)</h1>
+  <p>输入内容后提交，会调用 <code>POST /api/v1/chat</code>（闲聊、订会、取消、查会议室等）。</p>
   <form id="form">
     <label for="text">会议描述 (text)</label>
     <textarea id="text" name="text" placeholder="例如：明天下午3点开项目会，1小时，会议室A，提前15分钟提醒">明天下午3点开项目会，1小时，会议室A，提前15分钟提醒</textarea>
@@ -34,7 +34,7 @@
       resultEl.className = 'result';
       resultEl.textContent = '请求中...';
       try {
-        const res = await fetch('http://localhost:8000/api/v1/book', {
+        const res = await fetch('http://localhost:8000/api/v1/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ text: text })

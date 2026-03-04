@@ -38,12 +38,12 @@
 | 模块 | 职责 |
 |------|------|
 | config | 环境变量与 .env、pydantic-settings；Prompt 模板加载与缓存 |
-| core | LLM/Embeddings 抽象与 vllm/openai/dify 适配器；向量库工厂；统一异常；可观测回调 |
+| core | LLM/Embeddings 抽象与 vllm/openai/dify 适配器；向量库工厂；统一异常；可观测回调；会话历史（conversation） |
 | models | MeetingIntent、MeetingBooking |
 | rag | 向量库封装、默认会议知识、检索上下文 |
 | services | IMeetingService、MeetingStore、ReminderScheduler |
-| agent | Tool Agent（默认）/ LangGraph 图、tools、intent、AgentRunner.invoke |
-| api | 路由（v1/book、v1/health）、response、middleware、agent_bootstrap |
+| agent | Tool Agent（默认）、能力层（capabilities/meeting、占位 ops）、tools 聚合、AgentRunner.invoke |
+| api | 路由（v1/chat、v1/chat/voice、v1/health）、response、middleware、agent_bootstrap |
 
 ---
 
@@ -72,8 +72,14 @@
 
 1. 请求 → RequestID → SecurityHeaders → RequestLogging。
 2. 路由 → `get_agent(request)` 从 `app.state.agent` 取 Agent。
-3. `agent.invoke(text, request_id=...)`；可选注入 AgentLoggingCallbackHandler 打点。
-4. 响应；异常由 app 全局 handler 统一为 code/msg/data + request_id。
+3. **多轮会话**：若请求带 `conversation_id` 则从会话存储取最近 N 轮历史，否则新建会话；`agent.invoke(text, request_id=..., conversation_id=..., history=...)`；执行后将本轮 user/assistant 写入会话存储。
+4. 响应（data 中含 `conversation_id` 供下一轮携带）；异常由 app 全局 handler 统一为 code/msg/data + request_id。
+
+### 3.4 多轮会话与澄清
+
+- **会话**：`conversation_id` 由客户端首轮不传（服务端生成并返回）或客户端生成；同一会话内保留最近若干轮 user/assistant 历史（默认 20 条，见 `core/conversation.py`）。
+- **存储**：默认进程内 `ConversationStore`，生产可替换为 Redis 等；仅用于多轮上下文，不落库业务数据。
+- **澄清**：Tool Agent 的 system 提示中约定「若信息不足先用 reply_only 追问」；LLM 看到历史 + 当前输入后可输出追问，下一轮用户补充后再选 `book_meeting`。
 
 ---
 
@@ -150,7 +156,7 @@
 | 入口 | 说明 |
 |------|------|
 | app.py | FastAPI 入口，`uvicorn app:app` |
-| meeting_agent.main | 命令行 `meeting-agent --text/--voice` |
+| ai_assistant.main | 命令行 `ai-assistant --text/--voice` |
 
 - **扩展**：新 LLM/Embedding 在 core 增加适配器并在 factory 分支；新 Agent 实现 AgentRunner 并注册 agent_factory；查/订逻辑实现 IMeetingService 并注入 Tool Agent。
 - **约束**：默认预定与提醒为进程内，重启丢失；多实例需替换为持久化与分布式调度或对接业务接口。

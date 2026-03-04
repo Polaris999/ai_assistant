@@ -80,9 +80,9 @@ CHROMA_PERSIST_DIR=./data/chroma_db
 
 这样你需要部署的只有：**LLM 模型服务** 和 **Embedding 模型服务**；RAG 数据库用 Chroma 内嵌，无需单独部署。
 
-**K8s 部署**：若在 Kubernetes 上自建上述服务，见 [K8S_DEPLOY.md](K8S_DEPLOY.md)（vLLM/Embedding/向量库 Helm 或 Deployment 示例、meeting-agent 配置与 Service 发现）。
+**K8s 部署**：若在 Kubernetes 上自建上述服务，见 [K8S_DEPLOY.md](K8S_DEPLOY.md)（vLLM/Embedding/向量库 Helm 或 Deployment 示例、ai-assistant 配置与 Service 发现）。
 
 **自检命令**：配置好后可用 CLI 验证连通性，失败时退出码为 1。
-- `meeting-agent --check-vllm`：验证 vLLM 是否可达。
-- `meeting-agent --check-embedding`：验证 Embedding 是否可达/可用（请求 `/v1/embeddings`，若模型名不匹配会提示可用模型）。
-- `meeting-agent --check-vector-store`：验证当前向量库是否可用（Chroma 检查目录可写，Qdrant 请求 `/healthz`，Weaviate 请求 `/v1/.well-known/ready`）。
+- `ai-assistant --check-vllm`：验证 vLLM 是否可达。
+- `ai-assistant --check-embedding`：验证 Embedding 是否可达/可用（请求 `/v1/embeddings`，若模型名不匹配会提示可用模型）。
+- `ai-assistant --check-vector-store`：验证当前向量库是否可用（Chroma 检查目录可写，Qdrant 请求 `/healthz`，Weaviate 请求 `/v1/.well-known/ready`）。

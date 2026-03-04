@@ -11,9 +11,9 @@ _src = Path(__file__).resolve().parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from meeting_agent.agent.meeting_agent import create_meeting_agent_graph
-from meeting_agent.services.meeting_store import MeetingStore
-from meeting_agent.services.reminder_scheduler import ReminderScheduler
+from ai_assistant.agent.meeting_agent import create_meeting_agent_graph
+from ai_assistant.services.meeting_store import MeetingStore
+from ai_assistant.services.reminder_scheduler import ReminderScheduler
 
 
 class MockLLM:

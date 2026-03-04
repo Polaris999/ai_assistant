@@ -24,22 +24,22 @@ def test_health(client: TestClient):
     assert checks.get("agent") in ("ok", "placeholder")
 
 
-def test_book_missing_form(client: TestClient):
-    """POST /api/v1/book 缺少 text：422。"""
-    r = client.post("/api/v1/book")
+def test_chat_missing_form(client: TestClient):
+    """POST /api/v1/chat 缺少 text：422。"""
+    r = client.post("/api/v1/chat")
     assert r.status_code == 422
 
 
-def test_book_text_too_long(client: TestClient):
-    """POST /api/v1/book 文本超长：422，body.code 为 400（VALIDATION_ERROR）。"""
-    r = client.post("/api/v1/book", data={"text": "x" * 3000})
+def test_chat_text_too_long(client: TestClient):
+    """POST /api/v1/chat 文本超长：422，body.code 为 400（VALIDATION_ERROR）。"""
+    r = client.post("/api/v1/chat", data={"text": "x" * 3000})
     assert r.status_code == 422
     assert r.json().get("code") == 400
 
 
-def test_book_with_text(client: TestClient):
-    """POST /api/v1/book 带 text：200 时 body 为 code/msg/data/request_id，data 含 reply；503/500 时亦有 code、msg、request_id。"""
-    r = client.post("/api/v1/book", data={"text": "明天下午3点开项目会，1小时"})
+def test_chat_with_text(client: TestClient):
+    """POST /api/v1/chat 带 text：200 时 body 为 code/msg/data/request_id，data 含 reply、conversation_id。"""
+    r = client.post("/api/v1/chat", data={"text": "明天下午3点开项目会，1小时"})
     assert r.status_code in (200, 503, 500)
     data = r.json()
     assert "code" in data
@@ -47,3 +47,18 @@ def test_book_with_text(client: TestClient):
     if r.status_code == 200:
         payload = data.get("data") or {}
         assert "reply" in payload or "booking" in payload
+        assert "conversation_id" in payload
+
+
+def test_chat_multiturn_conversation_id(client: TestClient):
+    """多轮会话：首轮不传 conversation_id 响应带 conversation_id；第二轮传该 id 仍成功。"""
+    r1 = client.post("/api/v1/chat", data={"text": "你好"})
+    assert r1.status_code == 200
+    payload1 = r1.json().get("data") or {}
+    cid = payload1.get("conversation_id")
+    assert cid, "首轮响应应包含 conversation_id"
+    r2 = client.post("/api/v1/chat", data={"text": "有哪些会议室", "conversation_id": cid})
+    assert r2.status_code == 200
+    payload2 = r2.json().get("data") or {}
+    assert payload2.get("conversation_id") == cid
+    assert "reply" in payload2

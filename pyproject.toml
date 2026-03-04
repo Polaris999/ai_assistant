@@ -3,9 +3,9 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "meeting-agent"
+name = "ai-assistant"
 version = "1.0.0"
-description = "会议预定 Agent（LangChain + LangGraph + 胶水层 + RAG）"
+description = "统一对话助手（LangChain + LangGraph + RAG，支持会议预定等能力）"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -48,7 +48,7 @@ weaviate = [
 ]
 
 [project.scripts]
-meeting-agent = "meeting_agent.main:main"
+ai-assistant = "ai_assistant.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -69,4 +69,4 @@ select = ["E", "F", "I", "N", "W", "UP"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["meeting_agent"]
+known-first-party = ["ai_assistant"]

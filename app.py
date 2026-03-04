@@ -15,22 +15,22 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from meeting_agent import __version__
-from meeting_agent.api.deps import get_agent
-from meeting_agent.api.middleware import (
+from ai_assistant import __version__
+from ai_assistant.api.deps import get_agent
+from ai_assistant.api.middleware import (
     REQUEST_ID_HEADER,
     RequestIDMiddleware,
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
-from meeting_agent.api.response import (
+from ai_assistant.api.response import (
     body as response_body,
     app_exception_to_code_status,
     CODE_INTERNAL_ERROR,
 )
-from meeting_agent.api.v1 import router as v1_router
-from meeting_agent.config import get_profile, settings
-from meeting_agent.core.exceptions import AppException
+from ai_assistant.api.v1 import router as v1_router
+from ai_assistant.config import get_profile, settings
+from ai_assistant.core.exceptions import AppException
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -48,12 +48,12 @@ async def lifespan(app: FastAPI):
         if getattr(settings, "langchain_project", ""):
             os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
         logger.info("LangSmith 追踪已开启，项目名: %s", getattr(settings, "langchain_project", "meeting-agent"))
-    from meeting_agent.config.validation import validate_settings
+    from ai_assistant.config.validation import validate_settings
     errs = validate_settings()
     if errs:
         logger.warning("配置校验未通过: %s", errs)
-    from meeting_agent.agent_base import run_agent_warmup
-    from meeting_agent.api.agent_bootstrap import create_agent_or_placeholder
+    from ai_assistant.agent_base import run_agent_warmup
+    from ai_assistant.api.agent_bootstrap import create_agent_or_placeholder
     app.state.agent = create_agent_or_placeholder()
     timeout_s = getattr(settings, "vector_store_warmup_timeout_seconds", 45) or 45
     ok, err = run_agent_warmup(app.state.agent, timeout_seconds=timeout_s)
@@ -73,8 +73,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="会议预定 Agent",
-    description="LangChain+LangGraph+RAG，LLM/Embeddings/向量库按配置切换（vllm、openai、dify、api、chroma、qdrant、weaviate）",
+    title="Assistant",
+    description="统一对话助手，支持会议预定、查会议室、取消等；LangChain+LangGraph+RAG，LLM/Embeddings/向量库按配置切换（vllm、openai、dify、api、chroma、qdrant、weaviate）",
     version=__version__,
     lifespan=lifespan,
 )

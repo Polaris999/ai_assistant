@@ -1,6 +1,6 @@
-# 会议预定 Agent
+# AI Assistant
 
-通过**语音或文本**输入创建会议预定，在会议开始前 **N 分钟**触发提醒。基于 LangChain + LangGraph + RAG，LLM/Embeddings/向量库按配置切换。
+统一对话助手：**语音或文本**输入，支持会议预定、查会议室、取消等；后续可扩展运维工单等能力。基于 LangChain + LangGraph + RAG，LLM/Embeddings/向量库按配置切换。
 
 ## 技术栈
 
@@ -20,10 +20,11 @@ pip install -e .
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- **API**：`POST /api/v1/book`（表单 `text=会议描述`）、`POST /api/v1/book/voice`、`GET /api/v1/health`
-- **命令行**：`meeting-agent --text "明天下午3点开项目会，1小时，会议室A"` 或 `meeting-agent --voice path/to.wav`
+- **API**：`POST /api/v1/chat`（统一对话：闲聊、订会、取消、查会议室等；后续可扩展运维工单；表单 `text`，可选 `conversation_id`）、`POST /api/v1/chat/voice`、`GET /api/v1/health`
+- **多轮会话**：首轮不传 `conversation_id`，响应 `data.conversation_id` 供下一轮携带；同会话内支持追问与补全（如先问「订个会」再补「明天下午3点」）。
+- **命令行**：`ai-assistant --text "明天下午3点开项目会，1小时，会议室A"` 或 `ai-assistant --voice path/to.wav`
 
-响应格式统一为 `code` / `msg` / `data` / `request_id`，`code === 0` 表示成功。
+响应格式统一为 `code` / `msg` / `data` / `request_id`，`code === 0` 表示成功；`data.conversation_id` 用于多轮。
 
 ---
 
@@ -41,7 +42,7 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 ```
 1agent/
-├── src/meeting_agent/     # 主包
+├── src/ai_assistant/     # 主包
 │   ├── agent_base.py     # Agent 协议（AgentRunner、run_agent_warmup）
 │   ├── framework/        # 可复用框架聚合
 │   ├── agent/            # LangGraph 图（会议 Agent）
@@ -62,6 +63,6 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ## 常见问题
 
 - **WinError 1114 / c10.dll**：若仅用 vLLM + 单独 Embedding（不跑本地模型），可 `pip uninstall torch -y` 后启动。
-- **向量库/Embedding 不可达**：使用 `meeting-agent --check-vector-store`、`meeting-agent --check-embedding` 自检；详见 [安装部署](docs/DEPLOYMENT.md)。
+- **向量库/Embedding 不可达**：使用 `ai-assistant --check-vector-store`、`ai-assistant --check-embedding` 自检；详见 [安装部署](docs/DEPLOYMENT.md)。
 
 更多使用说明、扩展方式与部署细节见上述三类文档。

@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytest
 
-from meeting_agent.models.meeting import MeetingBooking, MeetingIntent
+from ai_assistant.models.meeting import MeetingBooking, MeetingIntent
 
 
 def test_meeting_intent():

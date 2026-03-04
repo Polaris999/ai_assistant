@@ -61,8 +61,8 @@ pip install -e .
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- **API**：`POST /api/v1/book`、`POST /api/v1/book/voice`、`GET /api/v1/health`。
-- **命令行**：`meeting-agent --text "会议描述"` 或 `meeting-agent --voice path/to.wav`。
+- **API**：`POST /api/v1/chat`、`POST /api/v1/chat/voice`、`GET /api/v1/health`。
+- **命令行**：`ai-assistant --text "会议描述"` 或 `ai-assistant --voice path/to.wav`。
 
 ### 自检命令（可选）
 
@@ -70,9 +70,9 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 | 命令 | 说明 |
 |------|------|
-| `meeting-agent --check-vllm` | 验证 vLLM（LLM）是否可达 |
-| `meeting-agent --check-embedding` | 验证 Embedding 服务（/v1/embeddings） |
-| `meeting-agent --check-vector-store` | 验证当前向量库（Chroma 目录可写，Qdrant/Weaviate 健康） |
+| `ai-assistant --check-vllm` | 验证 vLLM（LLM）是否可达 |
+| `ai-assistant --check-embedding` | 验证 Embedding 服务（/v1/embeddings） |
+| `ai-assistant --check-vector-store` | 验证当前向量库（Chroma 目录可写，Qdrant/Weaviate 健康） |
 
 ---
 
@@ -109,7 +109,7 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 | 文档 | 内容 |
 |------|------|
 | [DEPLOY_SERVICES.md](DEPLOY_SERVICES.md) | 三类依赖的选项、配置项、典型组合与最小自建方案 |
-| [K8S_DEPLOY.md](K8S_DEPLOY.md) | Kubernetes 部署：vLLM（LLM）、Embedding、Qdrant/Weaviate、meeting-agent 的 Helm/Deployment 与配置 |
+| [K8S_DEPLOY.md](K8S_DEPLOY.md) | Kubernetes 部署：vLLM（LLM）、Embedding、Qdrant/Weaviate、ai-assistant 的 Helm/Deployment 与配置 |
 | [VLLM_EMBEDDING_DOCKER.md](VLLM_EMBEDDING_DOCKER.md) | 使用 vLLM Docker 部署 Embedding 模型（/v1/embeddings），含 GPU/CPU、ModelScope、故障排查 |
 
 部署自建服务时，先确定「需要部署哪些服务」→ 按 [DEPLOY_SERVICES.md](DEPLOY_SERVICES.md) 配好 `.env`；若用 K8s 或 vLLM Docker 部署 Embedding，再查阅对应子文档。
