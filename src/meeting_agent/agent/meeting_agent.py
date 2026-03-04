@@ -1,11 +1,13 @@
 """LangGraph 会议预定 Agent：RAG → 解析意图 → 创建预定 → 回复润色，状态与节点显式定义。"""
 import json
 import logging
+import time
 from datetime import datetime, timedelta
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from langgraph.graph import END, START, StateGraph
 
+from meeting_agent.agent_base import AgentRunner as AgentRunnerProtocol
 from meeting_agent.agent.state import MeetingAgentState
 from meeting_agent.config import settings
 from meeting_agent.config.prompt_loader import get_parse_intent_template, get_reply_polish_template
@@ -20,7 +22,7 @@ from meeting_agent.services.reminder_scheduler import ReminderScheduler
 logger = logging.getLogger(__name__)
 
 
-def _parse_intent_node(state: MeetingAgentState) -> dict:
+def _parse_intent_node(state: MeetingAgentState) -> dict[str, Any]:
     """RAG 后解析用户输入为会议意图（JSON），写入 state.intent 或 state.error/reply。"""
     user_input = (state.get("user_input") or "").strip()
     if not user_input:
@@ -41,13 +43,30 @@ def _parse_intent_node(state: MeetingAgentState) -> dict:
     )
     system = "你只输出一个合法的 JSON 对象，不要 markdown 或多余解释。"
 
+    text = ""
     try:
+        t0 = time.perf_counter()
         text = llm.invoke(prompt, system=system, temperature=0)
-        text = text.strip()
+        logger.debug("parse_intent llm %.0fms", (time.perf_counter() - t0) * 1000)
+        text = (text or "").strip()
+        if not text:
+            raise ValueError("LLM 返回为空，无法解析会议意图")
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(line for line in lines if line.strip() and not line.strip().startswith("```"))
-        data = json.loads(text)
+            text = text.strip()
+        # 若仍非合法 JSON，尝试从文本中抽取首段 {...}
+        data = None
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                data = json.loads(text[start : end + 1])
+        if data is None:
+            logger.warning("parse_intent 非 JSON，原始: %.200s", (text or "")[:200])
+            raise ValueError("LLM 返回内容不是合法 JSON，无法解析会议意图")
         start_time_str = data.get("start_time")
         if isinstance(start_time_str, str):
             s = start_time_str.replace("Z", "+00:00").strip()
@@ -72,7 +91,8 @@ def _parse_intent_node(state: MeetingAgentState) -> dict:
         )
         return {"intent": intent, "error": None}
     except Exception as e:
-        logger.exception("解析会议意图失败: %s", e)
+        logger.warning("解析意图失败: %s", e)
+        logger.debug("parse_intent 原始返回: %.300s", (text or "")[:300], exc_info=True)
         return {
             "intent": None,
             "error": str(e),
@@ -80,7 +100,7 @@ def _parse_intent_node(state: MeetingAgentState) -> dict:
         }
 
 
-def _create_booking_node(state: MeetingAgentState) -> dict:
+def _create_booking_node(state: MeetingAgentState) -> dict[str, Any]:
     """根据 intent 创建预定（MeetingStore）并调度提醒（ReminderScheduler），写入 state.booking/reply。"""
     intent = state.get("intent")
     if intent is None:
@@ -123,7 +143,7 @@ def _create_booking_node(state: MeetingAgentState) -> dict:
         return {"booking": None, "error": str(e), "reply": "创建会议失败，请稍后重试。"}
 
 
-def _reply_node(state: MeetingAgentState) -> dict:
+def _reply_node(state: MeetingAgentState) -> dict[str, Any]:
     """可选：用 reply_llm 对 state.reply 做简短润色后写回 state.reply。"""
     reply = state.get("reply") or ""
     if not reply:
@@ -133,11 +153,13 @@ def _reply_node(state: MeetingAgentState) -> dict:
         return {}
     try:
         prompt = get_reply_polish_template().format(reply=reply)
+        t0 = time.perf_counter()
         out = reply_llm.invoke(prompt, temperature=0.3)
+        logger.debug("reply_polish %.0fms", (time.perf_counter() - t0) * 1000)
         if out and out.strip():
             return {"reply": out.strip()}
     except Exception as e:
-        logger.warning("回复润色失败 (%s)，使用原回复: %s", reply_llm.name, e)
+        logger.warning("回复润色失败: %s", e)
     return {}
 
 
@@ -156,7 +178,9 @@ class _UnreadyAgentRunner:
     def __init__(self, config_message: str = ""):
         self._config_message = config_message or "LLM 未配置"
 
-    def invoke(self, user_input: str, user_id: str = "default", request_id: Optional[str] = None) -> dict:
+    def invoke(
+        self, user_input: str, user_id: str = "default", request_id: Optional[str] = None
+    ) -> dict[str, Any]:
         reply = (
             "服务未就绪：请配置 LLM（如 OPENAI_API_KEY 或 VLLM_BASE_URL 或 DIFY_API_KEY）。"
             if not self._config_message.strip()
@@ -171,7 +195,7 @@ def create_meeting_agent_graph(
     meeting_store: Optional[MeetingStore] = None,
     reminder_scheduler: Optional[ReminderScheduler] = None,
     meeting_rag: Optional[MeetingRAG] = None,
-):
+) -> AgentRunnerProtocol:
     """构建 LangGraph 会议预定 Agent：rag → parse_intent → [create_booking → reply_polish] | end。"""
     store = meeting_store or MeetingStore()
     scheduler = reminder_scheduler or ReminderScheduler()
@@ -193,10 +217,12 @@ def create_meeting_agent_graph(
         else:
             reply_llm = None
 
-    def rag_node(state: MeetingAgentState) -> dict:
+    def rag_node(state: MeetingAgentState) -> dict[str, Any]:
         user_input = state.get("user_input") or ""
         r = state.get("_rag") or rag
+        t0 = time.perf_counter()
         context = r.retrieve_context(user_input, k=4)
+        logger.debug("rag retrieve %.0fms", (time.perf_counter() - t0) * 1000)
         return {"rag_context": context}
 
     graph = StateGraph(MeetingAgentState)
@@ -222,7 +248,10 @@ def create_meeting_agent_graph(
             self._llm = llm_instance
             self._reply_llm = reply_llm_instance
 
-        def invoke(self, user_input: str, user_id: str = "default", request_id: Optional[str] = None) -> dict:
+        def invoke(
+            self, user_input: str, user_id: str = "default", request_id: Optional[str] = None
+        ) -> dict[str, Any]:
+            t0 = time.perf_counter()
             rag.init_default_knowledge()
             initial: MeetingAgentState = {
                 "user_input": user_input,
@@ -244,6 +273,7 @@ def create_meeting_agent_graph(
                 config["callbacks"] = [AgentLoggingCallbackHandler(request_id=request_id)]
                 config["metadata"] = {"request_id": request_id}
             result = self._graph.invoke(initial, config=config)
+            logger.info("agent invoke %.0fms", (time.perf_counter() - t0) * 1000)
             return {
                 "reply": result.get("reply", ""),
                 "booking": result.get("booking"),

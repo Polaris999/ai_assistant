@@ -44,11 +44,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         duration_ms = (time.perf_counter() - start) * 1000
         request_id = getattr(request.state, "request_id", "")
         logger.info(
-            "request finished method=%s path=%s status=%s duration_ms=%.2f request_id=%s",
+            "req %s %s %s %.0fms %s",
             request.method,
             request.url.path,
             response.status_code,
             duration_ms,
-            request_id,
+            request_id or "-",
         )
         return response

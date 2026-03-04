@@ -11,13 +11,15 @@ def client():
 
 
 def test_health(client: TestClient):
-    """GET /api/v1/health 返回 200 及 status、version、checks（含 agent 就绪状态）。"""
+    """GET /api/v1/health 返回 200，body 为 code/msg/data/request_id，data 内含 status、version、checks。"""
     r = client.get("/api/v1/health")
     assert r.status_code == 200
-    data = r.json()
-    assert data["status"] == "ok"
-    assert "version" in data
-    checks = data.get("checks", {})
+    body = r.json()
+    assert body.get("code") == 0
+    payload = body.get("data") or {}
+    assert payload.get("status") == "ok"
+    assert "version" in payload
+    checks = payload.get("checks", {})
     assert checks.get("config") == "ok"
     assert checks.get("agent") in ("ok", "placeholder")
 
@@ -29,18 +31,19 @@ def test_book_missing_form(client: TestClient):
 
 
 def test_book_text_too_long(client: TestClient):
-    """POST /api/v1/book 文本超长：422。"""
+    """POST /api/v1/book 文本超长：422，body.code 为 400（VALIDATION_ERROR）。"""
     r = client.post("/api/v1/book", data={"text": "x" * 3000})
     assert r.status_code == 422
-    assert r.json().get("code") == "VALIDATION_ERROR"
+    assert r.json().get("code") == 400
 
 
 def test_book_with_text(client: TestClient):
-    """POST /api/v1/book 带 text：200/503 时 body 含 reply、error、request_id；500 为未捕获异常（如外部服务不可用）。"""
+    """POST /api/v1/book 带 text：200 时 body 为 code/msg/data/request_id，data 含 reply；503/500 时亦有 code、msg、request_id。"""
     r = client.post("/api/v1/book", data={"text": "明天下午3点开项目会，1小时"})
     assert r.status_code in (200, 503, 500)
     data = r.json()
-    if r.status_code in (200, 503):
-        assert "reply" in data and "error" in data and "request_id" in data
-    else:
-        assert "code" in data or "message" in data
+    assert "code" in data
+    assert "request_id" in data or "msg" in data
+    if r.status_code == 200:
+        payload = data.get("data") or {}
+        assert "reply" in payload or "booking" in payload

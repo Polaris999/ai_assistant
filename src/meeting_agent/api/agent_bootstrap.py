@@ -1,6 +1,9 @@
-"""Agent 创建：成功返回图，OSError/ValueError 时返回占位。"""
+"""Agent 创建：支持注入 factory，成功返回 Runner，失败返回占位（符合 AgentRunner 协议）。"""
 import logging
+from typing import Any, Callable, Optional
 
+from meeting_agent.agent_base import AgentRunner
+from meeting_agent.core.exceptions import ConfigError
 from meeting_agent.core.helper import mask_secret
 
 logger = logging.getLogger(__name__)
@@ -8,23 +11,34 @@ logger = logging.getLogger(__name__)
 _LOG_EXC_MAX_LEN = 500
 
 
-def _placeholder(reason: str):
+def _placeholder(reason: str) -> AgentRunner:
     """占位 Agent，_scheduler=None 供 shutdown 判断。"""
+
     class _Placeholder:
         _scheduler = None
 
-        def invoke(self, user_input: str, user_id: str = "default", request_id: str | None = None):
+        def invoke(
+            self, user_input: str, user_id: str = "default", request_id: Optional[str] = None
+        ) -> dict[str, Any]:
             return {"reply": reason, "booking": None, "error": "RUNTIME_ERROR"}
 
-    return _Placeholder()
+    return _Placeholder()  # type: ignore[return-value]
 
 
-def create_agent_or_placeholder():
-    """创建 Agent，OSError/ValueError 时返回占位。"""
-    try:
+def create_agent_or_placeholder(
+    agent_factory: Optional[Callable[[], AgentRunner]] = None,
+) -> AgentRunner:
+    """
+    创建 Agent；失败时返回占位 Runner。
+    未传 agent_factory 时使用默认会议 Agent（create_meeting_agent_graph）。
+    """
+    factory = agent_factory
+    if factory is None:
         from meeting_agent.agent.meeting_agent import create_meeting_agent_graph
-        return create_meeting_agent_graph()
-    except (OSError, ValueError) as e:
+        factory = create_meeting_agent_graph
+    try:
+        return factory()
+    except (OSError, ValueError, ImportError, ConfigError) as e:
         msg = str(e)
         log_msg = msg if len(msg) <= _LOG_EXC_MAX_LEN else mask_secret(msg, visible=80)
         logger.warning("Agent 创建失败: %s", log_msg)

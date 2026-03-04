@@ -1,7 +1,10 @@
 # core/vectorstore/factory.py
-"""向量库工厂：chroma / qdrant / weaviate。"""
+"""向量库工厂：chroma / qdrant / weaviate；进程内单例缓存复用连接。"""
+from __future__ import annotations
+
 import logging
-from typing import Any, Callable, List, Optional
+import threading
+from typing import Any, Callable, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from langchain_core.documents import Document
@@ -17,6 +20,10 @@ logger = logging.getLogger(__name__)
 VECTOR_STORE_CHROMA = "chroma"
 VECTOR_STORE_QDRANT = "qdrant"
 VECTOR_STORE_WEAVIATE = "weaviate"
+
+# 进程内缓存：相同配置复用同一 VectorStoreWrapper，避免重复建连
+_vector_store_cache: dict[Tuple[str, ...], VectorStoreWrapper] = {}
+_vector_store_cache_lock = threading.Lock()
 
 
 class VectorStoreWrapper:
@@ -59,10 +66,20 @@ def get_vector_store(
     weaviate_api_key: Optional[str] = None,
 ) -> VectorStoreWrapper:
     """
-    根据配置返回向量库封装（Chroma / Qdrant / Weaviate）。
-    若未传 embedding，则使用 get_embeddings()；未传 type/persist_dir/url 等则从 settings 读取。
+    根据配置返回向量库封装（Chroma / Qdrant / Weaviate）；相同配置复用进程内缓存连接。
+    缓存 key 为 (type, collection_name, persist_dir, urls)，不区分 embedding 实例，同配置共享连接。
+    若未传 embedding 则使用 get_embeddings()；未传 type/persist_dir/url 等则从 settings 读取。
     """
     t = (vector_store_type or getattr(settings, "vector_store_type", None) or VECTOR_STORE_CHROMA).strip().lower()
+    persist = (persist_dir or getattr(settings, "chroma_persist_dir", "") or "").strip()
+    qurl = (qdrant_url or getattr(settings, "qdrant_url", "") or "").strip().rstrip("/")
+    wurl = (weaviate_url or getattr(settings, "weaviate_url", "") or "").strip().rstrip("/")
+    cache_key: Tuple[str, ...] = (t, collection_name, persist, qurl, wurl)
+    with _vector_store_cache_lock:
+        if cache_key in _vector_store_cache:
+            logger.debug("向量库复用缓存连接 cache_key=%s", cache_key[:3])
+            return _vector_store_cache[cache_key]
+
     if embedding is None:
         try:
             embedding = get_embeddings()
@@ -73,17 +90,20 @@ def get_vector_store(
     if t == VECTOR_STORE_CHROMA:
         from langchain_chroma import Chroma
 
-        persist = persist_dir or getattr(settings, "chroma_persist_dir", "./data/chroma_db")
+        persist_dir_resolved = persist_dir or getattr(settings, "chroma_persist_dir", "./data/chroma_db")
         store = Chroma(
             collection_name=collection_name,
             embedding_function=embedding,
-            persist_directory=str(persist),
+            persist_directory=str(persist_dir_resolved),
         )
 
         def _chroma_count() -> int:
             return store._collection.count()
 
-        return VectorStoreWrapper(store, get_count=_chroma_count)
+        wrapper = VectorStoreWrapper(store, get_count=_chroma_count)
+        with _vector_store_cache_lock:
+            _vector_store_cache[cache_key] = wrapper
+        return wrapper
     if t == VECTOR_STORE_QDRANT:
         try:
             from langchain_qdrant import QdrantVectorStore
@@ -92,7 +112,7 @@ def get_vector_store(
             raise ConfigError(
                 "使用 Qdrant 需安装: pip install -e '.[qdrant]' 或 pip install langchain-qdrant qdrant-client"
             ) from e
-        url = (qdrant_url or getattr(settings, "qdrant_url", None) or "").strip()
+        url = qurl or (getattr(settings, "qdrant_url", None) or "").strip()
         if not url:
             raise ConfigError("使用 Qdrant 需配置 QDRANT_URL（例如 http://localhost:6333）")
         api_key = (qdrant_api_key or getattr(settings, "qdrant_api_key", None) or "").strip() or None
@@ -109,7 +129,10 @@ def get_vector_store(
             except Exception:
                 return 0
 
-        return VectorStoreWrapper(store, get_count=_qdrant_count)
+        wrapper = VectorStoreWrapper(store, get_count=_qdrant_count)
+        with _vector_store_cache_lock:
+            _vector_store_cache[cache_key] = wrapper
+        return wrapper
     if t == VECTOR_STORE_WEAVIATE:
         try:
             import weaviate
@@ -119,23 +142,28 @@ def get_vector_store(
             raise ConfigError(
                 "使用 Weaviate 需安装: pip install -e '.[weaviate]' 或 pip install langchain-weaviate weaviate-client"
             ) from e
-        url = (weaviate_url or getattr(settings, "weaviate_url", None) or "").strip()
+        url = wurl or (getattr(settings, "weaviate_url", None) or "").strip()
         if not url:
             raise ConfigError("使用 Weaviate 需配置 WEAVIATE_URL（例如 http://localhost:8080，Dify 默认可用）")
         parsed = urlparse(url)
         host = parsed.hostname or "localhost"
         port = parsed.port or (443 if parsed.scheme == "https" else 8080)
         secure = parsed.scheme == "https"
+        # 同一 host 下 http.port 与 grpc.port 必须不同；若 URL 端口为 50051 则视为 gRPC，HTTP 用 8080
+        grpc_port = 50051
+        http_port = 8080 if port == grpc_port else port
         api_key = (weaviate_api_key or getattr(settings, "weaviate_api_key", None) or "").strip() or None
         auth = Auth.api_key(api_key) if api_key else None
+        # skip_init_checks=True：当 gRPC(50051) 不可达或超时时仍可连接，仅用 REST 做检索/写入
         client = weaviate.connect_to_custom(
             http_host=host,
-            http_port=port,
+            http_port=http_port,
             http_secure=secure,
             grpc_host=host,
-            grpc_port=50051,
+            grpc_port=grpc_port,
             grpc_secure=secure,
             auth_credentials=auth,
+            skip_init_checks=True,
         )
         text_key = getattr(settings, "weaviate_text_key", "content") or "content"
         store = WeaviateVectorStore(
@@ -148,9 +176,13 @@ def get_vector_store(
         def _weaviate_count() -> int:
             try:
                 coll = client.collections.use(collection_name)
-                return coll.aggregate.over_all(total_count=True).total_count
+                total = coll.aggregate.over_all(total_count=True).total_count
+                return total if total is not None else 0
             except Exception:
                 return 0
 
-        return VectorStoreWrapper(store, get_count=_weaviate_count)
+        wrapper = VectorStoreWrapper(store, get_count=_weaviate_count)
+        with _vector_store_cache_lock:
+            _vector_store_cache[cache_key] = wrapper
+        return wrapper
     raise ConfigError(f"不支持的 vector_store_type: {t}，可选: chroma, qdrant, weaviate")

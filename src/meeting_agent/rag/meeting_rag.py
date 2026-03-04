@@ -1,7 +1,12 @@
 """会议知识 RAG：支持 Chroma / Qdrant / Weaviate（按配置切换）+ 默认会议室/规则知识。"""
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import List, Optional
+
+# Chroma get_count() 超时（秒），超时则跳过默认知识写入，避免请求卡死
+RAG_GET_COUNT_TIMEOUT = 15
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -50,18 +55,22 @@ class MeetingRAG:
             return None
         if self._embeddings is None:
             try:
+                t0 = time.perf_counter()
                 self._embeddings = get_embeddings()
+                logger.debug("RAG embeddings %.0fms", (time.perf_counter() - t0) * 1000)
             except (ConfigError, ImportError) as e:
-                logger.warning("RAG 无向量检索: %s；需配置 EMBEDDING_BASE_URL（单独 embedding 服务）", e)
+                logger.warning("RAG 无向量检索: %s", e)
                 self._no_rag = True
                 return None
         try:
+            t0 = time.perf_counter()
             self._vector_store = get_vector_store(
                 collection_name=self.COLLECTION_NAME,
                 embedding=self._embeddings,
                 vector_store_type=self._vector_store_type,
                 persist_dir=str(self.persist_dir),
             )
+            logger.debug("RAG 向量库 %.0fms", (time.perf_counter() - t0) * 1000)
         except (ConfigError, ImportError) as e:
             logger.warning("RAG 无向量检索: %s", e)
             self._no_rag = True
@@ -78,7 +87,7 @@ class MeetingRAG:
         chunks = splitter.split_documents(docs)
         try:
             vs.add_documents(chunks)
-            logger.info("RAG 添加 %s 个 chunk", len(chunks))
+            logger.debug("RAG add %s chunks", len(chunks))
         except ImportError as e:
             logger.warning("RAG 无向量检索: %s；需配置 EMBEDDING_BASE_URL（单独 embedding 服务）", e)
             self._no_rag = True
@@ -87,13 +96,23 @@ class MeetingRAG:
     def init_default_knowledge(self) -> None:
         vs = self._get_vector_store()
         if vs is None:
-            logger.info("RAG 未就绪（未配置 Embeddings），跳过默认知识初始化，意图解析将无会议知识上下文")
             return
-        count = vs.get_count()
+        t0 = time.perf_counter()
+        count: Optional[int] = None
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                count = ex.submit(vs.get_count).result(timeout=RAG_GET_COUNT_TIMEOUT)
+        except FuturesTimeoutError:
+            logger.warning("RAG get_count 超时 %ss，跳过默认知识", RAG_GET_COUNT_TIMEOUT)
+            return
+        except Exception as e:
+            logger.warning("RAG get_count 异常: %s", e)
+            return
         if count is not None and count > 0:
-            logger.info("RAG 已有数据，跳过默认知识初始化")
+            logger.debug("RAG 已有数据 count=%s，跳过默认知识", count)
             return
         self.add_documents(DEFAULT_MEETING_KNOWLEDGE)
+        logger.info("RAG 默认知识写入 %.0fms", (time.perf_counter() - t0) * 1000)
 
     def retrieve(self, query: str, k: int = 4) -> List[Document]:
         vs = self._get_vector_store()

@@ -23,8 +23,13 @@ from meeting_agent.api.middleware import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
+from meeting_agent.api.response import (
+    body as response_body,
+    app_exception_to_code_status,
+    CODE_INTERNAL_ERROR,
+)
 from meeting_agent.api.v1 import router as v1_router
-from meeting_agent.config import settings
+from meeting_agent.config import get_profile, settings
 from meeting_agent.core.exceptions import AppException
 
 logging.basicConfig(
@@ -37,6 +42,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """可观测、配置校验（仅打日志）、创建 Agent；失败则占位。"""
+    logger.info("配置 profile: %s", get_profile())
     if getattr(settings, "langchain_tracing_enabled", False):
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
         if getattr(settings, "langchain_project", ""):
@@ -46,8 +52,15 @@ async def lifespan(app: FastAPI):
     errs = validate_settings()
     if errs:
         logger.warning("配置校验未通过: %s", errs)
+    from meeting_agent.agent_base import run_agent_warmup
     from meeting_agent.api.agent_bootstrap import create_agent_or_placeholder
     app.state.agent = create_agent_or_placeholder()
+    timeout_s = getattr(settings, "vector_store_warmup_timeout_seconds", 45) or 45
+    ok, err = run_agent_warmup(app.state.agent, timeout_seconds=timeout_s)
+    if ok and err is None:
+        logger.info("Agent 预热完成")
+    elif err:
+        logger.warning("Agent 预热: %s", err)
     yield
     agent = getattr(app.state, "agent", None)
     if agent is not None:
@@ -55,9 +68,8 @@ async def lifespan(app: FastAPI):
         if scheduler is not None:
             try:
                 scheduler.shutdown(wait=True)
-                logger.info("ReminderScheduler 已关闭")
             except Exception as e:
-                logger.exception("Scheduler 关闭异常: %s", e)
+                logger.warning("Scheduler 关闭异常: %s", e)
 
 
 app = FastAPI(
@@ -74,23 +86,18 @@ app.add_middleware(RequestIDMiddleware)
 app.include_router(v1_router)
 
 
-def _error_body(exc: AppException, request_id: str = "") -> dict:
-    body = exc.to_dict()
-    if request_id:
-        body["request_id"] = request_id
-    return body
+def _response_headers(request_id: str):
+    return {REQUEST_ID_HEADER: request_id} if request_id else None
 
 
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     request_id = getattr(request.state, "request_id", "")
-    status = 422 if exc.code == "VALIDATION_ERROR" else 400
-    if exc.code == "NOT_FOUND":
-        status = 404
+    code, status = app_exception_to_code_status(exc.code)
     return JSONResponse(
         status_code=status,
-        content=_error_body(exc, request_id),
-        headers={REQUEST_ID_HEADER: request_id} if request_id else None,
+        content=response_body(code, exc.message, exc.details or None, request_id),
+        headers=_response_headers(request_id),
     )
 
 
@@ -98,17 +105,10 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     request_id = getattr(request.state, "request_id", "")
     logger.exception("unhandled exception request_id=%s: %s", request_id, exc)
-    body = {
-        "code": "INTERNAL_ERROR",
-        "message": "Internal server error",
-        "details": {},
-    }
-    if request_id:
-        body["request_id"] = request_id
     return JSONResponse(
         status_code=500,
-        content=body,
-        headers={REQUEST_ID_HEADER: request_id} if request_id else None,
+        content=response_body(CODE_INTERNAL_ERROR, "Internal server error", None, request_id),
+        headers=_response_headers(request_id),
     )
 
 
@@ -118,7 +118,7 @@ if _static_dir.exists():
 
 
 @app.get("/", include_in_schema=False)
-async def root():
+async def root() -> RedirectResponse:
     return RedirectResponse("/static/book_example.html")
 
 

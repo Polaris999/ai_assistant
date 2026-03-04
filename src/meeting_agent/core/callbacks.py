@@ -27,41 +27,25 @@ class AgentLoggingCallbackHandler(BaseCallbackHandler):
 
     def on_chain_start(self, serialized: dict, inputs: dict, **kwargs: Any) -> None:
         serialized = serialized or {}
-        id_val = serialized.get("id")
         name = serialized.get("name")
-        if name is None and isinstance(id_val, list) and id_val:
-            name = id_val[-1]
+        if name is None and isinstance(serialized.get("id"), list):
+            id_val = serialized["id"]
+            name = id_val[-1] if id_val else "chain"
         if name is None:
             name = "chain"
         self._run_start = time.perf_counter()
-        logger.info(
-            "agent.node_start node=%s",
-            name,
-            extra={**self._extra(), "agent_node": name},
-        )
+        logger.debug("node_start %s", name, extra=self._extra())
 
     def on_chain_end(self, outputs: dict, **kwargs: Any) -> None:
         duration_ms = (time.perf_counter() - self._run_start) * 1000 if self._run_start else 0
-        logger.info(
-            "agent.node_end duration_ms=%.0f",
-            duration_ms,
-            extra={**self._extra(), "duration_ms": round(duration_ms)},
-        )
+        logger.debug("node_end %.0fms", duration_ms, extra=self._extra())
 
     def on_llm_start(self, serialized: dict, prompts: list[str], **kwargs: Any) -> None:
         self._llm_start = time.perf_counter()
-        logger.info(
-            "agent.llm_start",
-            extra=self._extra(),
-        )
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
         duration_ms = (time.perf_counter() - self._llm_start) * 1000 if self._llm_start else 0
-        logger.info(
-            "agent.llm_end duration_ms=%.0f",
-            duration_ms,
-            extra={**self._extra(), "duration_ms": round(duration_ms)},
-        )
+        logger.debug("llm_end %.0fms", duration_ms, extra=self._extra())
 
     def on_agent_action(self, action: AgentAction, **kwargs: Any) -> None:
         pass

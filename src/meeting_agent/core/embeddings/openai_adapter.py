@@ -14,8 +14,11 @@ class OpenAIEmbeddingsAdapter(BaseEmbeddings):
         model: str = "text-embedding-3-small",
         api_key: str = "",
         base_url: Optional[str] = None,
+        request_timeout: Optional[float] = None,
         **kwargs,
     ):
+        if request_timeout is not None and "request_timeout" not in kwargs:
+            kwargs["request_timeout"] = request_timeout
         self._embeddings = OpenAIEmbeddings(
             model=model,
             api_key=api_key or None,

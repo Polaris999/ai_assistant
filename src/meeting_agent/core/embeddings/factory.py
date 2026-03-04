@@ -9,14 +9,18 @@ EMBEDDING_TYPE_OPENAI = "openai"
 EMBEDDING_TYPE_API = "api"
 
 
-def _openai_compat_adapter(model: str, api_key: str, base_url: Optional[str]):
+def _openai_compat_adapter(
+    model: str, api_key: str, base_url: Optional[str], request_timeout: Optional[float] = None
+) -> BaseEmbeddings:
     try:
         from meeting_agent.core.embeddings.openai_adapter import OpenAIEmbeddingsAdapter
     except ImportError as e:
         raise ConfigError(
             "Embeddings 需安装: pip install -e '.[openai]' 或 pip install openai langchain-openai"
         ) from e
-    return OpenAIEmbeddingsAdapter(model=model, api_key=api_key or "no-key", base_url=base_url)
+    return OpenAIEmbeddingsAdapter(
+        model=model, api_key=api_key or "no-key", base_url=base_url, request_timeout=request_timeout
+    )
 
 
 def get_embeddings(embedding_type: Optional[str] = None) -> BaseEmbeddings:
@@ -28,7 +32,10 @@ def get_embeddings(embedding_type: Optional[str] = None) -> BaseEmbeddings:
             raise ConfigError("EMBEDDING_TYPE=api 时需配置 EMBEDDING_BASE_URL（自建 embedding 服务地址）")
         api_key = (getattr(settings, "embedding_api_key", None) or "").strip()
         model = (getattr(settings, "embedding_model", None) or "").strip() or "default"
-        return _openai_compat_adapter(model=model, api_key=api_key, base_url=base_url.rstrip("/"))
+        timeout = int(getattr(settings, "embedding_request_timeout", 0) or 60)
+        return _openai_compat_adapter(
+            model=model, api_key=api_key, base_url=base_url.rstrip("/"), request_timeout=float(timeout)
+        )
     if t == EMBEDDING_TYPE_OPENAI:
         api_key = getattr(settings, "openai_api_key", None) or ""
         if not api_key:
@@ -40,5 +47,8 @@ def get_embeddings(embedding_type: Optional[str] = None) -> BaseEmbeddings:
             or None
         )
         base_url = (base_url or "").strip() or None
-        return _openai_compat_adapter(model=model, api_key=api_key, base_url=base_url)
+        timeout = int(getattr(settings, "embedding_request_timeout", 0) or 60)
+        return _openai_compat_adapter(
+            model=model, api_key=api_key, base_url=base_url, request_timeout=float(timeout)
+        )
     raise ConfigError(f"不支持的 embedding_type: {t}，可选: openai, api")

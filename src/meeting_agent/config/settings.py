@@ -1,14 +1,32 @@
 # config/settings.py
-"""应用配置，支持 .env 与环境变量。"""
+"""应用配置，支持按 profile 加载 .env 与环境变量。"""
+import logging
+import os
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 # 项目根目录（src/meeting_agent/config -> 根）
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+# Profile：由环境变量 APP_PROFILE 或 ENV 指定，未设时默认 dev（先读环境变量，不依赖 .env）
+_PROFILE = (os.environ.get("APP_PROFILE") or os.environ.get("ENV") or "dev").strip().lower()
+if _PROFILE not in ("dev", "test", "prod"):
+    _PROFILE = "dev"
+
+_env_profile = _ROOT / f".env.{_PROFILE}"
+_env_common = _ROOT / ".env"
+# 先 profile 再 .env，后者覆盖；不存在的文件 pydantic 会忽略
+_env_files = [str(_env_profile), str(_env_common)]
+
 try:
     from dotenv import load_dotenv
-    load_dotenv(_ROOT / ".env", encoding="utf-8")
-except Exception:
-    pass
+    if _env_profile.exists():
+        load_dotenv(_env_profile, encoding="utf-8")
+    if _env_common.exists():
+        load_dotenv(_env_common, encoding="utf-8")
+except Exception as e:
+    _logger.warning("加载 .env 失败（将仅用环境变量）: %s", e)
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,7 +34,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """LLM/Embeddings/向量库按 type 切换，见字段注释。"""
     model_config = SettingsConfigDict(
-        env_file=str(_ROOT / ".env"),
+        env_file=_env_files,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -47,15 +65,17 @@ class Settings(BaseSettings):
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     embedding_model: str = ""
+    embedding_request_timeout: int = 60  # Embedding 请求超时（秒），避免远程不可达时无限挂起
 
     # --- 向量库（vector_store_type: chroma | qdrant | weaviate）---
     vector_store_type: str = "chroma"
-    chroma_persist_dir: str = "./data/chroma_db"
+    chroma_persist_dir: str = "./data/chroma_db"  # 相对路径时相对于进程 CWD，生产建议用绝对路径
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
     weaviate_url: str = "http://localhost:8080"
     weaviate_api_key: str = ""
     weaviate_text_key: str = "content"
+    vector_store_warmup_timeout_seconds: int = 45  # 启动时向量库预热超时（秒），超时则首请求按需连接
 
     # --- API 限制 ---
     api_book_text_max_length: int = 2000  # 文本预定会议描述最大字符数
@@ -72,6 +92,11 @@ class Settings(BaseSettings):
 
     def chroma_path(self) -> Path:
         return Path(self.chroma_persist_dir)
+
+
+def get_profile() -> str:
+    """当前配置 profile（dev/test/prod），由 APP_PROFILE 或 ENV 决定。"""
+    return _PROFILE
 
 
 settings = Settings()
