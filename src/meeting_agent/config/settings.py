@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     prompt_reply_polish_path: str = ""
     langchain_tracing_enabled: bool = False
     langchain_project: str = "meeting-agent"
+    use_tool_agent: bool = True  # True=Agent+Tools 调用 IMeetingService；False=原 LangGraph 图
 
     def chroma_path(self) -> Path:
         return Path(self.chroma_persist_dir)

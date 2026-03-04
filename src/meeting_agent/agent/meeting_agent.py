@@ -8,6 +8,12 @@ from typing import Any, Literal, Optional
 from langgraph.graph import END, START, StateGraph
 
 from meeting_agent.agent_base import AgentRunner as AgentRunnerProtocol
+from meeting_agent.agent.intent import (
+    UserIntent,
+    detect_intent,
+    reply_for_chitchat,
+    reply_for_query_rooms,
+)
 from meeting_agent.agent.state import MeetingAgentState
 from meeting_agent.config import settings
 from meeting_agent.config.prompt_loader import get_parse_intent_template, get_reply_polish_template
@@ -23,12 +29,19 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_intent_node(state: MeetingAgentState) -> dict[str, Any]:
-    """RAG 后解析用户输入为会议意图（JSON），写入 state.intent 或 state.error/reply。"""
+    """RAG 后解析用户输入为会议意图（JSON），写入 state.intent 或 state.error/reply。先按意图路由：闲聊/查会议室直接回复，其余走 LLM 解析会议。"""
     user_input = (state.get("user_input") or "").strip()
     if not user_input:
         return {"intent": None, "error": "用户输入为空", "reply": "请说出或输入您要预定的会议信息。"}
 
+    intent = detect_intent(user_input)
     rag_context = state.get("rag_context") or ""
+
+    if intent == UserIntent.CHITCHAT:
+        return {"intent": None, "error": None, "reply": reply_for_chitchat(user_input)}
+    if intent == UserIntent.QUERY_ROOMS:
+        return {"intent": None, "error": None, "reply": reply_for_query_rooms(rag_context)}
+
     now = datetime.now()
     default_minutes = getattr(settings, "default_remind_minutes", 15)
     llm: Optional[BaseLLM] = state.get("_llm")
@@ -95,7 +108,7 @@ def _parse_intent_node(state: MeetingAgentState) -> dict[str, Any]:
         logger.debug("parse_intent 原始返回: %.300s", (text or "")[:300], exc_info=True)
         return {
             "intent": None,
-            "error": str(e),
+            "error": "PARSE_ERROR",
             "reply": "抱歉，我没理解您的会议安排，请说明会议主题、开始时间和时长。",
         }
 

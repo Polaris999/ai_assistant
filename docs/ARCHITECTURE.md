@@ -41,8 +41,8 @@
 | core | LLM/Embeddings 抽象与 vllm/openai/dify 适配器；向量库工厂；统一异常；可观测回调 |
 | models | MeetingIntent、MeetingBooking |
 | rag | 向量库封装、默认会议知识、检索上下文 |
-| services | MeetingStore、ReminderScheduler |
-| agent | MeetingAgentState、LangGraph 图与节点、AgentRunner.invoke |
+| services | IMeetingService、MeetingStore、ReminderScheduler |
+| agent | Tool Agent（默认）/ LangGraph 图、tools、intent、AgentRunner.invoke |
 | api | 路由（v1/book、v1/health）、response、middleware、agent_bootstrap |
 
 ---
@@ -113,12 +113,44 @@
 
 ---
 
-## 6. 入口与扩展约束
+## 6. 意图理解与路由（设计选型与落地）
+
+### 6.1 常见模式对比
+
+| 模式 | 做法 | 适用场景 | 优点 | 缺点 |
+|------|------|----------|------|------|
+| **规则路由** | 关键词/短句匹配 → 固定分支 | 意图少、表述稳定 | 无额外 LLM、延迟低 | 泛化差 |
+| **LLM 意图分类** | 先调 LLM 输出 intent 再分支 | 意图多、说法多样 | 泛化好 | 多一次 LLM 调用 |
+| **Agent + Tools** | LLM 选「工具」并填参，按需调用 | 多能力、需组合（查+订+改） | 灵活，业内主流 | 依赖 prompt/结构化输出 |
+| **Skills** | 能力模块化，由路由或 LLM 选择 | 团队分工、复用 | 边界清晰 | 与路由/Tools 结合使用 |
+
+### 6.2 推荐流程（意图优先）
+
+```
+用户输入 → [意图识别] → [路由]
+   chitchat      → 固定/模板回复
+   query_rooms   → 仅 RAG（或业务接口）返回会议室信息
+   book_meeting  → 解析参数后调用预定接口
+```
+
+- **意图识别**：可规则（关键词）或 LLM 输出 intent/结构化结果。
+- **何时上 Tools**：可选动作多、参数由自然语言决定时，用 LLM 选 tool + 填参；**Skills** 为能力封装，可每个 skill 对应一个 tool。
+
+### 6.3 本项目落地（默认：Agent + Tools）
+
+- **默认**（`USE_TOOL_AGENT=true`）：**Tool Agent**。LLM 一次输出 `tool` + `arguments`，执行层调用 **IMeetingService** 后返回。
+- **业务接口**：`IMeetingService`（`services/meeting_service.py`）提供 `query_meeting_rooms()`、`book_meeting(...)`；默认实现用 RAG + MeetingStore + ReminderScheduler，生产可替换为 HTTP 调业务后端。
+- **Tools**：`reply_only`（闲聊）、`query_meeting_rooms`、`book_meeting`（见 `agent/tools.py`）；Agent 见 `agent/tool_agent.py`。
+- **切换**：`USE_TOOL_AGENT=false` 时使用原 LangGraph 图（规则意图 `agent/intent.py` + 解析会议 JSON）。
+
+---
+
+## 7. 入口与扩展约束
 
 | 入口 | 说明 |
 |------|------|
 | app.py | FastAPI 入口，`uvicorn app:app` |
 | meeting_agent.main | 命令行 `meeting-agent --text/--voice` |
 
-- **扩展**：新 LLM/Embedding 在 core 增加适配器并在 factory 分支；新 Agent 实现 AgentRunner 并注册 agent_factory。
-- **约束**：当前预定存储与提醒为进程内，重启丢失；多实例需替换为持久化与分布式调度。
+- **扩展**：新 LLM/Embedding 在 core 增加适配器并在 factory 分支；新 Agent 实现 AgentRunner 并注册 agent_factory；查/订逻辑实现 IMeetingService 并注入 Tool Agent。
+- **约束**：默认预定与提醒为进程内，重启丢失；多实例需替换为持久化与分布式调度或对接业务接口。

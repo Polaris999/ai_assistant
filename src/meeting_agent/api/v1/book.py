@@ -43,22 +43,36 @@ def _booking_to_json_serializable(booking: Optional[Any]) -> Any:
 
 
 def _book_response(request: Request, result: dict[str, Any]) -> JSONResponse:
-    """统一 code/msg/data 格式。"""
+    """统一 code/msg/data：msg 仅描述 code，业务结果（reply、booking）一律放在 data。"""
     reply = result.get("reply", "处理失败")
     booking = result.get("booking")
     error = result.get("error")
     req_id = _request_id(request)
+    data_payload: dict[str, Any] = {"reply": reply, "booking": _booking_to_json_serializable(booking)}
+    if error is not None:
+        data_payload["error"] = error
 
     if error and error in AGENT_ERROR_CODES_503:
-        return json_response(CODE_SERVICE_UNAVAILABLE, reply, None, req_id, status_code=503)
+        return json_response(
+            CODE_SERVICE_UNAVAILABLE,
+            "服务暂不可用",
+            data_payload,
+            req_id,
+            status_code=503,
+        )
     if booking is not None:
         return json_response(
             CODE_SUCCESS,
             "success",
-            {"reply": reply, "booking": _booking_to_json_serializable(booking)},
+            data_payload,
             req_id,
         )
-    return json_response(CODE_BUSINESS_ERROR, reply, None, req_id)
+    return json_response(
+        CODE_BUSINESS_ERROR,
+        "success",
+        data_payload,
+        req_id,
+    )
 
 
 @router.post("/book", summary="文本预定会议")

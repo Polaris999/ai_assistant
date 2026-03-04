@@ -30,12 +30,19 @@ def create_agent_or_placeholder(
 ) -> AgentRunner:
     """
     创建 Agent；失败时返回占位 Runner。
-    未传 agent_factory 时使用默认会议 Agent（create_meeting_agent_graph）。
+    未传 agent_factory 时：USE_TOOL_AGENT=true 使用 Tool Agent（查/订走 IMeetingService），否则使用原 LangGraph 图。
     """
+    from meeting_agent.config import settings
     factory = agent_factory
     if factory is None:
-        from meeting_agent.agent.meeting_agent import create_meeting_agent_graph
-        factory = create_meeting_agent_graph
+        if getattr(settings, "use_tool_agent", True):
+            from meeting_agent.agent.tool_agent import create_tool_agent
+            def _factory() -> AgentRunner:
+                return create_tool_agent()
+            factory = _factory
+        else:
+            from meeting_agent.agent.meeting_agent import create_meeting_agent_graph
+            factory = create_meeting_agent_graph
     try:
         return factory()
     except (OSError, ValueError, ImportError, ConfigError) as e:

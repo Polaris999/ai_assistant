@@ -76,8 +76,12 @@ pytest tests/ -v --tb=short
 
 | 模块 | 说明 |
 |------|------|
+| `agent.tool_agent` | **默认** Tool Agent：LLM 选 tool（query_meeting_rooms/book_meeting/reply_only），执行走 IMeetingService |
+| `agent.tools` | Tool 定义与执行，调用 IMeetingService |
+| `agent.intent` | 规则意图（LangGraph 模式用）；意图与路由设计见 [技术架构 §6](ARCHITECTURE.md#6-意图理解与路由设计选型与落地) |
+| `agent.meeting_agent` | LangGraph 图（USE_TOOL_AGENT=false 时使用） |
+| `services.meeting_service` | **IMeetingService** 协议与默认实现；生产可替换为 HTTP 调业务后端 |
 | `models.meeting` | MeetingIntent、MeetingBooking |
-| `agent.meeting_agent` | LangGraph 图、AgentRunner 实现 |
 | `rag.meeting_rag` | 会议知识 RAG、默认知识 |
 | `services` | MeetingStore、ReminderScheduler |
 | `api.v1.book` | POST /book、/book/voice |
