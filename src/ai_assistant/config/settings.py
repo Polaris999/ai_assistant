@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     prompt_parse_intent_path: str = ""  # 空=包内默认
     prompt_reply_polish_path: str = ""
     langchain_tracing_enabled: bool = False
-    langchain_project: str = "meeting-agent"
+    langchain_project: str = "ai-assistant"
     use_tool_agent: bool = True  # True=Agent+Tools 调用 IMeetingService；False=原 LangGraph 图
 
     def chroma_path(self) -> Path:

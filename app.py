@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
         if getattr(settings, "langchain_project", ""):
             os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
-        logger.info("LangSmith 追踪已开启，项目名: %s", getattr(settings, "langchain_project", "meeting-agent"))
+        logger.info("LangSmith 追踪已开启，项目名: %s", getattr(settings, "langchain_project", "ai-assistant"))
     from ai_assistant.config.validation import validate_settings
     errs = validate_settings()
     if errs:
@@ -119,7 +119,7 @@ if _static_dir.exists():
 
 @app.get("/", include_in_schema=False)
 async def root() -> RedirectResponse:
-    return RedirectResponse("/static/book_example.html")
+    return RedirectResponse("/static/chat.html")
 
 
 if __name__ == "__main__":

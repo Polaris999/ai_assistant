@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from ai_assistant.agent.capabilities import get_default_capabilities
-from ai_assistant.agent.capabilities.meeting import TOOL_REPLY_ONLY
+from ai_assistant.agent.capabilities.meeting import TOOL_QUERY_ROOMS, TOOL_REPLY_ONLY
 from ai_assistant.agent.tools import (
     execute_tool,
     get_all_tool_names,
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 def _build_system_prompt(capabilities: list[Any]) -> str:
     intro = """你是助手。根据用户输入（及最近对话上下文），选择 exactly 一个操作并用 JSON 输出。
+- 若用户问「查询会议室」「有哪些会议室」「会议室有哪些」「查会议室」等，必须用 query_meeting_rooms，arguments 可为 {} 或 {"query": "用户原话"}，不要用 reply_only。
 - 若用户要「订会」但信息不足（如只说「订个会」未说时间），用 reply_only 追问（例如「请说明会议主题、开始时间和时长」）。
 - 若用户要「取消」会议（如：取消刚定的、取消刚才的、不订了、取消预约），必须用 cancel_meeting，arguments 可为 {}，系统会按本会话上一笔预定取消；不要用 reply_only 让用户再提供会议主题或时间。
 """
@@ -58,6 +59,18 @@ def _build_user_prompt(
 当前用户输入：{user_input}
 
 请输出一个 JSON 对象，包含 "tool" 和 "arguments"。"""
+
+
+def _looks_like_query_rooms(user_input: str) -> bool:
+    """用户输入是否明显在问「查会议室」类意图，用于解析失败时的关键词回退。"""
+    if not (user_input or "").strip():
+        return False
+    s = (user_input or "").strip()
+    if "会议室" not in s:
+        return False
+    # 含「会议室」且带查询意图关键词
+    keywords = ("查", "有哪些", "多少", "介绍", "看", "列表", "预约规则", "怎么约")
+    return any(k in s for k in keywords) or len(s) <= 12  # 短句如「查询会议室」也视为查会议室
 
 
 class ToolAgentRunner:
@@ -104,9 +117,15 @@ class ToolAgentRunner:
 
         tool_name, arguments = parse_llm_tool_output(text, self._valid_tools)
         if tool_name is None:
-            logger.warning("Tool Agent 解析 LLM 输出失败，回退为 reply_only")
-            tool_name = TOOL_REPLY_ONLY
-            arguments = {"reply": "抱歉，我没理解您的意思。需要预定会议请说明主题、开始时间和时长；想查会议室可直接问「有哪些会议室」。"}
+            # 解析失败时按关键词回退：明显是「查会议室」则走 query_meeting_rooms，避免模型输出不规范时仍能响应
+            if _looks_like_query_rooms(user_input):
+                tool_name = TOOL_QUERY_ROOMS
+                arguments = {"query": user_input}
+                logger.info("Tool Agent 解析失败，按关键词回退为 query_meeting_rooms")
+            else:
+                logger.warning("Tool Agent 解析 LLM 输出失败，回退为 reply_only")
+                tool_name = TOOL_REPLY_ONLY
+                arguments = {"reply": "抱歉，我没理解您的意思。需要预定会议请说明主题、开始时间和时长；想查会议室可直接问「有哪些会议室」。"}
 
         store = get_conversation_store()
         get_session_value = None
