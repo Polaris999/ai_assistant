@@ -1,12 +1,14 @@
-"""
-会议能力：查询会议室、预定会议、取消会议；依赖 IMeetingService，会话上下文用 last_booking_id。
-"""
+"""会议能力：查会议室、订会、取消。依赖 IMeetingService；规则见 ARCHITECTURE §6.4。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 
+DEFAULT_MAX_DAYS_AHEAD = 7
+DEFAULT_MAX_DURATION_MINUTES = 240
+
 from ai_assistant.agent.capabilities.base import BaseCapability
+from ai_assistant.services.meeting_rules import IMeetingRulesProvider, MeetingBookingRules
 from ai_assistant.services.meeting_service import IMeetingService
 
 TOOL_REPLY_ONLY = "reply_only"
@@ -41,16 +43,42 @@ def _schema_fragment() -> str:
 
 
 class MeetingCapability(BaseCapability):
-    """会议预定能力：查会议室、订会、取消；会话上下文键 last_booking_id。"""
+    """会议预定：查会议室、订会、取消。规则来自 rules_provider 或 settings。"""
 
-    def __init__(self, service: IMeetingService) -> None:
+    def __init__(
+        self,
+        service: IMeetingService,
+        *,
+        rules_provider: Optional[IMeetingRulesProvider] = None,
+        max_days_ahead: Optional[int] = None,
+        max_duration_minutes: Optional[int] = None,
+    ) -> None:
         self._service = service
+        self._rules_provider = rules_provider
+        if rules_provider is None:
+            try:
+                from ai_assistant.config.meeting_rules_config import meeting_rules_config
+                self._max_days_ahead = max_days_ahead if max_days_ahead is not None else meeting_rules_config.meeting_max_days_ahead
+                self._max_duration_minutes = max_duration_minutes if max_duration_minutes is not None else meeting_rules_config.meeting_max_duration_minutes
+            except Exception:
+                self._max_days_ahead = max_days_ahead if max_days_ahead is not None else DEFAULT_MAX_DAYS_AHEAD
+                self._max_duration_minutes = max_duration_minutes if max_duration_minutes is not None else DEFAULT_MAX_DURATION_MINUTES
+        else:
+            self._max_days_ahead = self._max_duration_minutes = 0
 
     def schema_fragment(self) -> str:
         return _schema_fragment()
 
     def tool_names(self) -> set[str]:
         return {TOOL_REPLY_ONLY, TOOL_QUERY_ROOMS, TOOL_BOOK_MEETING, TOOL_CANCEL_MEETING}
+
+    def _get_rules(self) -> MeetingBookingRules:
+        if self._rules_provider is not None:
+            return self._rules_provider.get_booking_rules()
+        return MeetingBookingRules(
+            max_days_ahead=self._max_days_ahead,
+            max_duration_minutes=self._max_duration_minutes,
+        )
 
     def execute(
         self,
@@ -69,6 +97,9 @@ class MeetingCapability(BaseCapability):
             query = (arguments.get("query") or "").strip()
             text = self._service.query_meeting_rooms(query)
             reply = f"根据当前信息：\n{text}\n\n如需预定，请说明会议主题、开始时间和时长。"
+            # 用户问「某天有哪些空闲」时提示：当前仅有会议室介绍与规则，无档期接口
+            if any(k in (query or "") for k in ("空闲", "可用", "明天", "哪天", "有没有空")):
+                reply += "\n\n说明：当前仅提供会议室介绍与预约规则，具体某日的空闲时段需对接预约系统或联系管理员。"
             return {"reply": reply, "booking": None, "error": None}
 
         if tool_name == TOOL_BOOK_MEETING:
@@ -83,7 +114,23 @@ class MeetingCapability(BaseCapability):
                     return {"reply": "会议时间格式有误。", "booking": None, "error": "PARSE_ERROR"}
             except ValueError:
                 return {"reply": "无法解析会议时间，请说明具体日期和时间。", "booking": None, "error": "PARSE_ERROR"}
+            rules = self._get_rules()
+            now = current_time if isinstance(current_time, datetime) else datetime.now()
+            limit_date = (now + timedelta(days=rules.max_days_ahead)).date()
+            start_date = start_time.date() if hasattr(start_time, "date") else start_time
+            if start_date > limit_date:
+                return {
+                    "reply": f"预约规则：最多只能提前 {rules.max_days_ahead} 天预约，您选择的日期超出范围，请选择 {rules.max_days_ahead} 天内的日期。",
+                    "booking": None,
+                    "error": "EXCEED_MAX_DAYS_AHEAD",
+                }
             duration_minutes = int(arguments.get("duration_minutes") or 60)
+            if duration_minutes <= 0 or duration_minutes > rules.max_duration_minutes:
+                return {
+                    "reply": f"预约规则：单次会议时长需在 1～{rules.max_duration_minutes // 60} 小时内，请调整时长。",
+                    "booking": None,
+                    "error": "EXCEED_MAX_DURATION",
+                }
             room = arguments.get("room") or None
             if isinstance(room, str) and not room.strip():
                 room = None

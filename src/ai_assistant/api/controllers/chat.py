@@ -51,7 +51,8 @@ def _chat_response(request: Request, result: dict[str, Any], conversation_id: Op
         data_payload["conversation_id"] = conversation_id
     if error and error in AGENT_ERROR_CODES_503:
         return json_response(CODE_SERVICE_UNAVAILABLE, "服务暂不可用", data_payload, req_id, status_code=503)
-    if booking is not None:
+    # 无错误即视为成功（查会议室、闲聊、订会成功等均 code 0；有 error 时为业务错误 code 1）
+    if error is None:
         return json_response(CODE_SUCCESS, "success", data_payload, req_id)
     return json_response(CODE_BUSINESS_ERROR, "success", data_payload, req_id)
 

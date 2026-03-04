@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from ai_assistant.agent.capabilities.meeting import MeetingCapability
+from ai_assistant.agent.capabilities.meeting import (
+    MeetingCapability,
+    DEFAULT_MAX_DAYS_AHEAD,
+    DEFAULT_MAX_DURATION_MINUTES,
+)
 from ai_assistant.agent.tool_agent import ToolAgentRunner
 from ai_assistant.core.llm.base import BaseLLM
 
@@ -66,4 +71,41 @@ def test_meeting_capability_cancel_uses_last_booking_id_from_session():
     assert result.get("booking") is None
     assert "cancelled:id123" in (result.get("reply") or "")
     assert service.cancel_called_with == ["id123"]
+
+
+def test_meeting_capability_book_exceed_max_days_ahead_returns_rule_error():
+    """业内实践：规则在代码中校验，超过配置天数不调后端，返回固定错误码。"""
+    service = _StubMeetingService()
+    cap = MeetingCapability(service, max_days_ahead=7, max_duration_minutes=240)  # type: ignore[arg-type]
+    now = datetime.now()
+    beyond = now + timedelta(days=DEFAULT_MAX_DAYS_AHEAD + 1)
+    start_time_str = beyond.strftime("%Y-%m-%dT14:00:00")
+    ctx = {"current_time": now}
+
+    result = cap.execute(
+        "book_meeting",
+        {"title": "测试", "start_time": start_time_str, "duration_minutes": 60},
+        ctx,
+    )
+    assert result.get("error") == "EXCEED_MAX_DAYS_AHEAD"
+    assert result.get("booking") is None
+    assert "7" in (result.get("reply") or "")
+
+
+def test_meeting_capability_book_exceed_max_duration_returns_rule_error():
+    """业内实践：单次会议时长由配置限制，在 execute 内校验。"""
+    service = _StubMeetingService()
+    cap = MeetingCapability(service, max_days_ahead=7, max_duration_minutes=240)  # type: ignore[arg-type]
+    now = datetime.now()
+    start_time_str = (now + timedelta(days=1)).strftime("%Y-%m-%dT14:00:00")
+    ctx = {"current_time": now}
+
+    result = cap.execute(
+        "book_meeting",
+        {"title": "测试", "start_time": start_time_str, "duration_minutes": DEFAULT_MAX_DURATION_MINUTES + 60},
+        ctx,
+    )
+    assert result.get("error") == "EXCEED_MAX_DURATION"
+    assert result.get("booking") is None
+    assert "4" in (result.get("reply") or "") or "240" in (result.get("reply") or "")
 

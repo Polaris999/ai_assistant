@@ -1,4 +1,4 @@
-"""生产用中间件：请求 ID、安全头、请求日志。"""
+"""生产用中间件：请求 ID、安全头、请求日志、可选 OpenTelemetry span。"""
 import logging
 import time
 import uuid
@@ -11,6 +11,8 @@ from starlette.responses import Response
 REQUEST_ID_HEADER = "X-Request-ID"
 
 logger = logging.getLogger(__name__)
+
+
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -36,11 +38,23 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """请求结束后打一条结构化日志（method, path, status, duration_ms, request_id）。"""
+    """请求结束后打一条日志（method, path, status, duration_ms, request_id）；可选 OTel span 包裹整请求。"""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         start = time.perf_counter()
-        response = await call_next(request)
+        try:
+            from ai_assistant.core.observability import get_tracer
+            tracer = get_tracer()
+            with tracer.start_as_current_span("http.request") as span:
+                if hasattr(span, "set_attribute"):
+                    span.set_attribute("http.method", request.method)
+                    span.set_attribute("http.target", request.url.path or "")
+                    rid = getattr(request.state, "request_id", None)
+                    if rid:
+                        span.set_attribute("request_id", rid)
+                response = await call_next(request)
+        except Exception:
+            response = await call_next(request)
         duration_ms = (time.perf_counter() - start) * 1000
         request_id = getattr(request.state, "request_id", "")
         logger.info(

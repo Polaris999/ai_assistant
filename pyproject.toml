@@ -47,6 +47,12 @@ weaviate = [
     "langchain-weaviate>=0.0.20",
     "weaviate-client>=4.4.0",
 ]
+# 可观测：OpenTelemetry 链路（可选 pip install -e '.[otel]'）
+otel = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+]
 
 [project.scripts]
 ai-assistant = "ai_assistant.main:main"

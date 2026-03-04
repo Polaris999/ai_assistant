@@ -1,9 +1,4 @@
-"""
-会议业务服务接口：查询会议室、预定会议由本接口对接，可替换为 HTTP 调用业务后端。
-
-- IMeetingService：协议定义，对接业务服务（本进程实现或远程 API）。
-- DefaultMeetingService：默认实现（RAG + MeetingStore + ReminderScheduler），生产可替换为 HTTP 客户端。
-"""
+"""会议业务：查会议室、订会、取消。IMeetingService 可本地实现或 HTTP 调后端。"""
 from __future__ import annotations
 
 import logging
@@ -20,10 +15,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class IMeetingService(Protocol):
-    """会议业务服务协议：查询会议室、预定会议。实现方可为本地逻辑或 HTTP 调用业务后端。"""
-
     def query_meeting_rooms(self, query: str = "") -> str:
-        """查询会议室/预约信息，返回可展示给用户的文本。"""
         ...
 
     def book_meeting(
@@ -35,22 +27,15 @@ class IMeetingService(Protocol):
         participants: Optional[List[str]] = None,
         remind_minutes_before: int = 15,
     ) -> dict[str, Any]:
-        """
-        预定会议。返回 dict：success (bool), booking (dict 或 None), error (str 或 None)。
-        调用方可根据 success 与 booking 组装回复。
-        """
+        """返回 success, booking?, error?"""
         ...
 
     def cancel_booking(self, booking_id: str) -> dict[str, Any]:
-        """
-        取消会议预定。返回 dict：success (bool), reply (str), error (str 或 None)。
-        """
+        """返回 success, reply, error?"""
         ...
 
 
 class DefaultMeetingService:
-    """默认实现：使用 RAG 查会议室，使用 MeetingStore + ReminderScheduler 创建预定。生产可替换为调用业务 HTTP 接口的实现。"""
-
     def __init__(
         self,
         meeting_store: Optional[MeetingStore] = None,
@@ -63,7 +48,6 @@ class DefaultMeetingService:
 
     @property
     def scheduler(self) -> ReminderScheduler:
-        """供 lifespan 优雅关闭时 shutdown(wait=True)。"""
         return self._scheduler
 
     def query_meeting_rooms(self, query: str = "") -> str:
@@ -111,7 +95,6 @@ class DefaultMeetingService:
             return {"success": False, "booking": None, "error": str(e)}
 
     def cancel_booking(self, booking_id: str) -> dict[str, Any]:
-        """取消预定：移除提醒任务并从存储删除。"""
         if not (booking_id or "").strip():
             return {"success": False, "reply": "未指定要取消的会议。", "error": "MISSING_BOOKING_ID"}
         bid = (booking_id or "").strip()

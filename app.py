@@ -55,6 +55,8 @@ async def lifespan(app: FastAPI):
     errs = validate_settings()
     if errs:
         logger.warning("配置校验未通过: %s", errs)
+    from ai_assistant.core.observability import init_otel
+    init_otel()
     from ai_assistant.agent.protocol import run_agent_warmup
     from ai_assistant.api.agent_bootstrap import create_agent_or_placeholder
     app.state.agent = create_agent_or_placeholder()

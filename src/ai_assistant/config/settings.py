@@ -1,22 +1,15 @@
-# config/settings.py
-"""应用配置，支持按 profile 加载 .env 与环境变量。"""
+"""应用配置，按 profile 加载 .env 与环境变量。"""
 import logging
 import os
 from pathlib import Path
 
 _logger = logging.getLogger(__name__)
-
-# 项目根目录（src/ai_assistant/config -> 根）
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
-
-# Profile：由环境变量 APP_PROFILE 或 ENV 指定，未设时默认 dev（先读环境变量，不依赖 .env）
 _PROFILE = (os.environ.get("APP_PROFILE") or os.environ.get("ENV") or "dev").strip().lower()
 if _PROFILE not in ("dev", "test", "prod"):
     _PROFILE = "dev"
-
 _env_profile = _ROOT / f".env.{_PROFILE}"
 _env_common = _ROOT / ".env"
-# 先 profile 再 .env，后者覆盖；不存在的文件 pydantic 会忽略
 _env_files = [str(_env_profile), str(_env_common)]
 
 try:
@@ -32,7 +25,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """LLM/Embeddings/向量库按 type 切换，见字段注释。"""
     model_config = SettingsConfigDict(
         env_file=_env_files,
         env_file_encoding="utf-8",
