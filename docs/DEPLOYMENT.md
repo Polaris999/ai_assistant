@@ -61,7 +61,7 @@ pip install -e .
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- **API**：`POST /api/v1/chat`、`POST /api/v1/chat/voice`、`GET /api/v1/health`。
+- **API**：`POST /api/chat`、`POST /api/chat/voice`、`GET /api/health`。
 - **命令行**：`ai-assistant --text "会议描述"` 或 `ai-assistant --voice path/to.wav`。
 
 ### 自检命令（可选）
@@ -81,7 +81,7 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 - **请求 ID**：中间件为每个请求生成 `request_id`，响应头与日志携带，便于排查。
 - **安全头**：中间件统一加安全相关响应头（如 X-Content-Type-Options 等）。
 - **优雅关闭**：FastAPI lifespan 在关闭时对 Agent 的 `_scheduler` 执行 `shutdown(wait=True)`，避免任务丢失。
-- **健康检查**：`GET /api/v1/health` 可做就绪探针；若实现 `is_ready(agent)`，会反映 Agent 与调度器状态。
+- **健康检查**：`GET /api/health` 可做就绪探针；若实现 `is_ready(agent)`，会反映 Agent 与调度器状态。
 - **全局异常**：未捕获异常由 app 全局 handler 统一为 `code` / `msg` / `data`，并带 `request_id`。
 
 多实例时，当前预定与提醒为进程内存储与调度，重启会丢失；若需持久化与分布式提醒，需替换 MeetingStore 与 ReminderScheduler 实现。
@@ -101,6 +101,24 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 | **可观测** | 保留 request_id、请求日志、全局异常；健康检查用于探针 | 接入统一日志与监控（如 ELK、Prometheus） |
 
 当前应用**未实现**：HTTP API 认证、应用层限流、预定/提醒持久化与多实例共享。这些若由网关或外部系统保障，或业务接受其缺失，则可在上述前提下用于生产。
+
+### 4.2 生产就绪评估摘要（再次核对）
+
+| 维度 | 状态 | 说明 |
+|------|------|------|
+| **请求可观测** | ✅ | X-Request-ID、请求日志（method/path/status/duration）、全局异常带 request_id |
+| **安全头** | ✅ | X-Content-Type-Options、X-Frame-Options、X-XSS-Protection |
+| **健康与就绪** | ✅ | GET /api/health，含 agent 状态，可做 K8s 就绪/存活探针 |
+| **优雅关闭** | ✅ | lifespan 结束时 scheduler.shutdown(wait=True) |
+| **配置与密钥** | ✅ | Profile（dev/test/prod）、.env + 环境变量、无硬编码密钥 |
+| **会话存储** | ✅ | 可选 Redis，多实例共享会话；未配置则进程内 |
+| **输入校验** | ✅ | 文本长度、语音大小、知识库 kb 白名单 |
+| **API 文档** | ✅ | /docs、/redoc；生产可设 DOCS_ENABLED=false 关闭 |
+| **CORS** | 可选 | 设 CORS_ORIGINS 后启用；否则由网关处理 |
+| **认证/限流** | 网关 | 应用内不实现，由网关或内网隔离保障 |
+| **多实例一致性** | 部分 | 会话可 Redis；预定/提醒仍进程内，需替换实现或接受单实例 |
+
+**结论**：在「由网关做鉴权与限流、或仅内网」且「接受预定/提醒进程内或自替换」的前提下，**可以上生产**（内网/试点/低风险场景）。上线前建议：`APP_PROFILE=prod`、密钥走环境变量、生产环境关闭文档（`DOCS_ENABLED=false`）、多实例时配置 Redis 会话存储。
 
 ---
 

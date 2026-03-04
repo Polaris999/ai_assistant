@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-from ai_assistant.agent.meeting_agent import create_meeting_agent_graph
+from ai_assistant.api.agent_bootstrap import create_agent_or_placeholder
 from ai_assistant.config import settings
 from ai_assistant.voice.stt import speech_to_text
 
@@ -245,13 +245,16 @@ def main() -> None:
         if not user_input:
             sys.exit(0)
 
-    agent = create_meeting_agent_graph()
+    agent = create_agent_or_placeholder()
     result = agent.invoke(user_input)
     print(result.get("reply", "未得到回复"))
     if result.get("error"):
         logger.warning("error: %s", result["error"])
-    if result.get("booking"):
-        print("会议ID:", result["booking"].id)
+    booking = result.get("booking")
+    if booking is not None:
+        bid = booking.get("id") if isinstance(booking, dict) else getattr(booking, "id", None)
+        if bid:
+            print("会议ID:", bid)
 
 
 if __name__ == "__main__":

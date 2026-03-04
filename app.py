@@ -28,9 +28,12 @@ from ai_assistant.api.response import (
     app_exception_to_code_status,
     CODE_INTERNAL_ERROR,
 )
-from ai_assistant.api.v1 import router as v1_router
+from ai_assistant.api.controllers import router as api_router
 from ai_assistant.config import get_profile, settings
 from ai_assistant.core.exceptions import AppException
+
+_DOCS_ENABLED = getattr(settings, "docs_enabled", True)
+_CORS_ORIGINS = [o.strip() for o in (getattr(settings, "cors_origins", "") or "").split(",") if o.strip()]
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -52,7 +55,7 @@ async def lifespan(app: FastAPI):
     errs = validate_settings()
     if errs:
         logger.warning("配置校验未通过: %s", errs)
-    from ai_assistant.agent_base import run_agent_warmup
+    from ai_assistant.agent.protocol import run_agent_warmup
     from ai_assistant.api.agent_bootstrap import create_agent_or_placeholder
     app.state.agent = create_agent_or_placeholder()
     timeout_s = getattr(settings, "vector_store_warmup_timeout_seconds", 45) or 45
@@ -77,13 +80,25 @@ app = FastAPI(
     description="统一对话助手，支持会议预定、查会议室、取消等；LangChain+LangGraph+RAG，LLM/Embeddings/向量库按配置切换（vllm、openai、dify、api、chroma、qdrant、weaviate）",
     version=__version__,
     lifespan=lifespan,
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
 
+if _CORS_ORIGINS:
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
-app.include_router(v1_router)
+app.include_router(api_router)
 
 
 def _response_headers(request_id: str):
@@ -120,6 +135,12 @@ if _static_dir.exists():
 @app.get("/", include_in_schema=False)
 async def root() -> RedirectResponse:
     return RedirectResponse("/static/chat.html")
+
+
+@app.get("/api/docs", include_in_schema=False)
+async def api_docs_redirect() -> RedirectResponse:
+    """便捷入口：跳转到 Swagger UI。"""
+    return RedirectResponse("/docs")
 
 
 if __name__ == "__main__":

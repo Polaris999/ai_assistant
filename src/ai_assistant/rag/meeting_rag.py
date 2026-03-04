@@ -1,4 +1,6 @@
-"""会议知识 RAG：支持 Chroma / Qdrant / Weaviate（按配置切换）+ 默认会议室/规则知识。"""
+"""会议知识 RAG：支持 Chroma / Qdrant / Weaviate（按配置切换）+ 默认会议室/规则知识。
+多知识库：按 kb_name 分集合（meeting / ops_ticket 等），每个业务独立 collection，与 Langchain-Chatchat 多 KB 一致。
+"""
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -19,6 +21,17 @@ from ai_assistant.core.vectorstore.factory import VectorStoreWrapper, get_vector
 
 logger = logging.getLogger(__name__)
 
+# 知识库名称与集合名：按库名分集合，后续运维工单等新增 kb 在此登记
+KB_MEETING = "meeting"
+KB_OPS_TICKET = "ops_ticket"
+ALLOWED_KB_NAMES = [KB_MEETING, KB_OPS_TICKET]
+
+
+def collection_name_for(kb_name: str) -> str:
+    """知识库名称 -> 向量库 collection 名；未登记的名称仍可生成（如自定义库），建议用白名单校验。"""
+    return f"{kb_name.strip().lower()}_knowledge"
+
+
 # 首次初始化时写入向量库的默认会议知识
 DEFAULT_MEETING_KNOWLEDGE = [
     "会议室A：容纳10人，支持投影，工作日上午9点到下午6点可预约。",
@@ -30,16 +43,18 @@ DEFAULT_MEETING_KNOWLEDGE = [
 
 
 class MeetingRAG:
-    """会议知识检索：按配置使用 Chroma / Qdrant / Weaviate，支持默认知识初始化与按 query 检索。"""
+    """按集合维度的知识检索：支持默认会议知识初始化与按 query 检索。多知识库时通过 collection_name 区分（如 meeting / ops_ticket）。"""
 
-    COLLECTION_NAME = "meeting_knowledge"
+    DEFAULT_COLLECTION_NAME = "meeting_knowledge"
 
     def __init__(
         self,
+        collection_name: Optional[str] = None,
         persist_dir: Optional[str] = None,
         embeddings: Optional[BaseEmbeddings] = None,
         vector_store_type: Optional[str] = None,
     ):
+        self._collection_name = (collection_name or "").strip() or self.DEFAULT_COLLECTION_NAME
         self.persist_dir = Path(persist_dir or settings.chroma_persist_dir)
         if getattr(settings, "vector_store_type", "chroma").strip().lower() == "chroma":
             self.persist_dir.mkdir(parents=True, exist_ok=True)
@@ -65,7 +80,7 @@ class MeetingRAG:
         try:
             t0 = time.perf_counter()
             self._vector_store = get_vector_store(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=self._collection_name,
                 embedding=self._embeddings,
                 vector_store_type=self._vector_store_type,
                 persist_dir=str(self.persist_dir),
@@ -123,3 +138,25 @@ class MeetingRAG:
     def retrieve_context(self, query: str, k: int = 4) -> str:
         docs = self.retrieve(query, k=k)
         return "\n\n".join(d.page_content for d in docs)
+
+    def get_count(self) -> Optional[int]:
+        """返回当前向量库中的 chunk 数量，未就绪或不可用时返回 None。"""
+        vs = self._get_vector_store()
+        if vs is None:
+            return None
+        return vs.get_count()
+
+    def clear_all(self) -> bool:
+        """清空当前集合内全部文档。Chroma 支持；Qdrant/Weaviate 暂无 get_ids 时返回 False。"""
+        vs = self._get_vector_store()
+        if vs is None:
+            return False
+        ids = vs.get_ids(limit=50_000)
+        if not ids:
+            if (vs.get_count() or 0) > 0:
+                logger.warning("RAG clear_all 无法获取 id 列表，当前向量库可能不支持清空")
+                return False
+            return True
+        vs.delete_ids(ids)
+        logger.info("RAG clear_all deleted count=%s", len(ids))
+        return True

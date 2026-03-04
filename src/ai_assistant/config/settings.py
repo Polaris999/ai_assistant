@@ -77,9 +77,11 @@ class Settings(BaseSettings):
     weaviate_text_key: str = "content"
     vector_store_warmup_timeout_seconds: int = 45  # 启动时向量库预热超时（秒），超时则首请求按需连接
 
-    # --- API 限制 ---
+    # --- API 限制与生产 ---
     api_chat_text_max_length: int = 2000  # 对话输入最大字符数
     api_voice_max_bytes: int = 10 * 1024 * 1024  # 语音上传最大字节数（默认 10MB）
+    docs_enabled: bool = True  # 生产可设 DOCS_ENABLED=false 关闭 /docs、/redoc
+    cors_origins: str = ""  # 逗号分隔的允许来源，空=不启用 CORS（由网关处理时可不设）
 
     # --- 其他 ---
     local_whisper_model: str = "base"  # 语音转文字本地模型（faster-whisper）
@@ -90,6 +92,29 @@ class Settings(BaseSettings):
     langchain_tracing_enabled: bool = False
     langchain_project: str = "ai-assistant"
     use_tool_agent: bool = True  # True=Agent+Tools 调用 IMeetingService；False=原 LangGraph 图
+
+    # --- 会话存储（内存 | Redis）---
+    # 若需用 Redis 存会话历史，配置 REDIS_HOST（或 REDIS_URL）；未配置则使用进程内内存
+    redis_host: str = ""
+    redis_port: int = 6379
+    redis_password: str = ""
+    redis_db: int = 0
+    redis_url: str = ""  # 可选：直接写 redis://[:password@]host:port/db，优先于 host/port/password
+    conversation_store_ttl_seconds: int = 86400  # Redis 会话 key 过期时间（秒），默认 24 小时
+
+    def get_redis_url(self) -> str:
+        """用于会话存储的 Redis 连接 URL；空串表示未配置，使用内存存储。"""
+        if (self.redis_url or "").strip():
+            return self.redis_url.strip()
+        if not (self.redis_host or "").strip():
+            return ""
+        host = self.redis_host.strip()
+        port = self.redis_port
+        db = self.redis_db
+        password = (self.redis_password or "").strip()
+        if password:
+            return f"redis://:{password}@{host}:{port}/{db}"
+        return f"redis://{host}:{port}/{db}"
 
     def chroma_path(self) -> Path:
         return Path(self.chroma_persist_dir)

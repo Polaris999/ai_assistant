@@ -12,7 +12,7 @@
 - 可观测：AgentLoggingCallbackHandler
 - 工具：mask_secret
 """
-from ai_assistant.agent_base import AgentRunner, InvokeResult, is_agent_ready, run_agent_warmup
+from ai_assistant.agent.protocol import AgentRunner, InvokeResult, is_agent_ready, run_agent_warmup
 from ai_assistant.api.response import (
     CODE_BUSINESS_ERROR,
     CODE_INTERNAL_ERROR,

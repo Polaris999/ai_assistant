@@ -27,7 +27,7 @@ _vector_store_cache_lock = threading.Lock()
 
 
 class VectorStoreWrapper:
-    """统一封装：add_documents、similarity_search、get_count（可选），便于 RAG 判断是否已有数据。"""
+    """统一封装：add_documents、similarity_search、get_count、delete_ids、get_ids（部分后端支持）。"""
 
     def __init__(
         self,
@@ -52,6 +52,31 @@ class VectorStoreWrapper:
         except Exception as e:
             logger.debug("向量库 get_count 失败: %s", e)
             return None
+
+    def delete_ids(self, ids: List[str]) -> None:
+        """按 id 删除文档；底层不支持时静默跳过。"""
+        if not ids:
+            return
+        delete_fn = getattr(self._store, "delete", None)
+        if callable(delete_fn):
+            try:
+                delete_fn(ids=ids)
+                logger.debug("向量库 delete_ids count=%s", len(ids))
+            except Exception as e:
+                logger.warning("向量库 delete_ids 失败: %s", e)
+        else:
+            logger.debug("当前向量库不支持 delete")
+
+    def get_ids(self, limit: int = 10000) -> List[str]:
+        """返回集合中的 id 列表（用于清空等）；Chroma 支持，其他后端可能返回空。"""
+        try:
+            coll = getattr(self._store, "_collection", None)
+            if coll is not None and hasattr(coll, "get"):
+                res = coll.get(limit=limit)
+                return list(getattr(res, "ids", [])) if res else []
+        except Exception as e:
+            logger.debug("向量库 get_ids 失败: %s", e)
+        return []
 
 
 def get_vector_store(

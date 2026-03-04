@@ -1,77 +1,14 @@
 """
-Agent 抽象：所有 Agent 实现统一接口，便于复用框架与扩展新 Agent。
+Agent 协议与工具函数（兼容层）。
 
-- 实现 invoke() 返回至少 reply/error，并提供 _scheduler 属性（无则 None），即可接入 API、中间件与生命周期。
-- 可选：实现 is_ready() -> bool 覆盖就绪判断；实现 warmup() 供启动时预热（lifespan 会带超时调用）。
-- 框架层与具体业务解耦，新 Agent 可直接复用。
+推荐从 ai_assistant.agent 导入：
+  from ai_assistant.agent import AgentRunner, InvokeResult, is_agent_ready, run_agent_warmup
 """
-import logging
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from typing import Any, Optional, Protocol, TypedDict, runtime_checkable
+from ai_assistant.agent.protocol import (
+    AgentRunner,
+    InvokeResult,
+    is_agent_ready,
+    run_agent_warmup,
+)
 
-logger = logging.getLogger(__name__)
-
-
-class InvokeResult(TypedDict):
-    """invoke() 最少应包含的字段；可含额外业务字段如 booking、intent。"""
-    reply: str
-    error: Optional[str]
-
-
-@runtime_checkable
-class AgentRunner(Protocol):
-    """Agent 运行器协议：对接 API 与 lifespan 的统一入口。"""
-
-    def invoke(
-        self,
-        user_input: str,
-        user_id: str = "default",
-        request_id: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """执行一轮对话/任务，返回至少含 reply、error 的 dict；可含 booking、intent 等业务字段。"""
-        ...
-
-    @property
-    def _scheduler(self) -> Any:
-        """用于 lifespan 关闭时 shutdown(wait=True)；也参与 is_agent_ready() 判断（无则设为 None）。"""
-        ...
-
-
-def is_agent_ready(agent: Optional[Any]) -> bool:
-    """
-    判断 Agent 是否就绪（非占位）。
-    若实现类提供 is_ready() 方法则优先调用；否则以 _scheduler is not None 视为就绪。
-    """
-    if agent is None:
-        return False
-    is_ready_fn = getattr(agent, "is_ready", None)
-    if callable(is_ready_fn):
-        return bool(is_ready_fn())
-    return getattr(agent, "_scheduler", None) is not None
-
-
-def run_agent_warmup(agent: Any, timeout_seconds: int = 45) -> tuple[bool, Optional[str]]:
-    """
-    执行 Agent 启动预热：若存在可调用的 warmup() 则调用；否则若存在 _rag.init_default_knowledge 则调用。
-    在子线程中执行并带超时。返回 (成功与否, 错误信息)。
-    """
-    if agent is None:
-        return True, None
-    warmup_fn = getattr(agent, "warmup", None)
-    if not callable(warmup_fn):
-        rag = getattr(agent, "_rag", None)
-        warmup_fn = getattr(rag, "init_default_knowledge", None) if rag else None
-    if not callable(warmup_fn):
-        return True, None
-    try:
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            ex.submit(warmup_fn).result(timeout=timeout_seconds)
-        return True, None
-    except FuturesTimeoutError:
-        return False, f"预热超时 {timeout_seconds}s"
-    except (OSError, ValueError, RuntimeError) as e:
-        logger.warning("Agent warmup 失败: %s", e)
-        return False, str(e)
-    except Exception as e:
-        logger.exception("Agent warmup 未预期异常")
-        return False, str(e)
+__all__ = ["AgentRunner", "InvokeResult", "is_agent_ready", "run_agent_warmup"]

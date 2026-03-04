@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from ai_assistant.agent.capabilities.base import BaseCapability
 from ai_assistant.services.meeting_service import IMeetingService
 
 TOOL_REPLY_ONLY = "reply_only"
@@ -39,7 +40,7 @@ def _schema_fragment() -> str:
 '''
 
 
-class MeetingCapability:
+class MeetingCapability(BaseCapability):
     """会议预定能力：查会议室、订会、取消；会话上下文键 last_booking_id。"""
 
     def __init__(self, service: IMeetingService) -> None:

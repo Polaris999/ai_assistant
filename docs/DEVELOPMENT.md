@@ -10,7 +10,7 @@
 
 | 模块 | 说明 |
 |------|------|
-| `ai_assistant.agent_base` | Agent 协议：`AgentRunner`、`InvokeResult`、`is_agent_ready()`、`run_agent_warmup()` |
+| `ai_assistant.agent` | Agent 协议：`AgentRunner`、`InvokeResult`、`is_agent_ready()`、`run_agent_warmup()`（实现于 agent/protocol.py） |
 | `ai_assistant.api.response` | 统一响应：`code` / `msg` / `data`，`success()`、`json_response()` |
 | `ai_assistant.api.middleware` | RequestID、安全头、请求日志 |
 | `ai_assistant.api.agent_bootstrap` | `create_agent_or_placeholder(agent_factory=...)` |
@@ -84,7 +84,7 @@ pytest tests/ -v --tb=short
 | `models.meeting` | MeetingIntent、MeetingBooking |
 | `rag.meeting_rag` | 会议知识 RAG、默认知识 |
 | `services` | MeetingStore、ReminderScheduler |
-| `api.v1.chat` | POST /chat、/chat/voice（统一对话入口） |
+| `api.controllers.chat` | POST /chat、/chat/voice（统一对话入口） |
 | `agent.capabilities` | 能力层：meeting（会议预定）、ops 占位（运维工单）；各能力提供 schema_fragment、tool_names、execute |
 
 ### 4.1 能力扩展（如运维工单）

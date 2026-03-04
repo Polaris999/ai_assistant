@@ -16,7 +16,7 @@ from ai_assistant.agent.tools import (
     get_tools_schema_for_prompt,
     parse_llm_tool_output,
 )
-from ai_assistant.agent_base import AgentRunner as AgentRunnerProtocol
+from ai_assistant.agent.protocol import AgentRunner as AgentRunnerProtocol
 from ai_assistant.config import settings
 from ai_assistant.core.conversation import get_conversation_store
 from ai_assistant.core.exceptions import ConfigError

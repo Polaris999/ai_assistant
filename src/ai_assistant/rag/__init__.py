@@ -1,3 +1,15 @@
-from ai_assistant.rag.meeting_rag import MeetingRAG
+from ai_assistant.rag.meeting_rag import (
+    ALLOWED_KB_NAMES,
+    KB_MEETING,
+    KB_OPS_TICKET,
+    MeetingRAG,
+    collection_name_for,
+)
 
-__all__ = ["MeetingRAG"]
+__all__ = [
+    "ALLOWED_KB_NAMES",
+    "KB_MEETING",
+    "KB_OPS_TICKET",
+    "MeetingRAG",
+    "collection_name_for",
+]

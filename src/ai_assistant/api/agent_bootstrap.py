@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Callable, Optional
 
-from ai_assistant.agent_base import AgentRunner
+from ai_assistant.agent.protocol import AgentRunner
 from ai_assistant.core.exceptions import ConfigError
 from ai_assistant.core.helper import mask_secret
 

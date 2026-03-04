@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional
 
 from langgraph.graph import END, START, StateGraph
 
-from ai_assistant.agent_base import AgentRunner as AgentRunnerProtocol
+from ai_assistant.agent.protocol import AgentRunner as AgentRunnerProtocol
 from ai_assistant.agent.intent import (
     UserIntent,
     detect_intent,
