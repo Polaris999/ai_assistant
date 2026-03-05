@@ -80,6 +80,7 @@ def reply_for_chitchat(user_input: str) -> str:
 
 def reply_for_query_rooms(rag_context: Optional[str]) -> str:
     """查会议室意图的回复文案（基于 RAG 上下文）。"""
-    if not (rag_context or "").strip():
+    text = (rag_context or "").strip()
+    if not text:
         return "当前暂无会议室信息。您可以直接说会议时间、主题和时长，我帮您预定。"
-    return f"根据当前信息：\n{rag_context.strip()}\n\n如需预定，请说明会议主题、开始时间和时长。"
+    return f"根据当前信息：\n{text}\n\n如需预定，请说明会议主题、开始时间和时长。"

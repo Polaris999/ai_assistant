@@ -74,7 +74,12 @@ class MeetingRAG:
                 self._embeddings = get_embeddings()
                 logger.debug("RAG embeddings %.0fms", (time.perf_counter() - t0) * 1000)
             except (ConfigError, ImportError) as e:
-                logger.warning("RAG 无向量检索: %s", e)
+                logger.warning(
+                    "RAG 将不使用向量检索（Embeddings 未就绪）: %s。"
+                    "启用向量检索请：1) 安装 pip install -e '.[openai]' 或 pip install openai langchain-openai；"
+                    "2) 配置 EMBEDDING_BASE_URL（embedding_type=api）或 OPENAI_API_KEY（embedding_type=openai）。",
+                    e,
+                )
                 self._no_rag = True
                 return None
         try:
@@ -87,7 +92,9 @@ class MeetingRAG:
             )
             logger.debug("RAG 向量库 %.0fms", (time.perf_counter() - t0) * 1000)
         except (ConfigError, ImportError) as e:
-            logger.warning("RAG 无向量检索: %s", e)
+            logger.warning(
+                "RAG 将不使用向量检索（向量库/Embeddings 未就绪）: %s。请检查向量库配置与依赖。", e
+            )
             self._no_rag = True
             return None
         return self._vector_store

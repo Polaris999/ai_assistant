@@ -7,9 +7,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 # 单条消息：role + content
 MessageDict = dict[str, str]
@@ -136,13 +139,15 @@ class RedisConversationStore(ConversationStore):
         self._expire(conversation_id)
 
     def get_session_value(self, conversation_id: str, key: str) -> Optional[Any]:
+        """返回该会话下某上下文键的值，无则 None。若存的是非 JSON 字符串则记录 debug 并返回该字符串。"""
         raw = self._client.hget(self._ctx_key(conversation_id), key)
         if raw is None:
             return None
         try:
             return json.loads(raw)
-        except Exception:
-            return raw
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.debug("Redis session value 非 JSON，key=%s: %s", key, e)
+            return raw if isinstance(raw, str) else None
 
     def set_last_booking_id(self, conversation_id: str, booking_id: str) -> None:
         self.set_session_value(conversation_id, "last_booking_id", (booking_id or "").strip())

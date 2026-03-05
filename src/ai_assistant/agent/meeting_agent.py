@@ -2,7 +2,7 @@
 import json
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 
@@ -22,6 +22,7 @@ from ai_assistant.core.exceptions import AppException, ConfigError
 from ai_assistant.core.serialization import to_json_serializable
 from ai_assistant.core.llm.base import BaseLLM
 from ai_assistant.core.llm.factory import get_llm
+from ai_assistant.core.llm.retry import invoke_with_retry
 from ai_assistant.models.meeting import MeetingIntent
 from ai_assistant.rag.meeting_rag import MeetingRAG
 from ai_assistant.services.meeting_store import MeetingStore
@@ -62,8 +63,15 @@ def _parse_intent_node(state: MeetingAgentState) -> dict[str, Any]:
     try:
         t0 = time.perf_counter()
         timeout_sec = getattr(settings, "llm_request_timeout_seconds", 120) or 120
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            text = ex.submit(lambda: llm.invoke(prompt, system=system, temperature=0)).result(timeout=timeout_sec)
+        retry_count = getattr(settings, "llm_retry_count", 0) or 0
+        text = invoke_with_retry(
+            llm,
+            prompt,
+            system=system,
+            temperature=0,
+            timeout_sec=timeout_sec,
+            retry_count=retry_count,
+        )
         logger.debug("parse_intent llm %.0fms", (time.perf_counter() - t0) * 1000)
         text = (text or "").strip()
         if not text:

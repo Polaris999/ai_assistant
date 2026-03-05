@@ -105,7 +105,10 @@
 ### 4.2 配置与 Prompt
 
 - 配置：pydantic-settings，从 .env 与环境变量加载。
-- Prompt：默认 `config/prompts/`，可通过 `PROMPT_PARSE_INTENT_PATH`、`PROMPT_REPLY_POLISH_PATH` 覆盖。
+- Prompt：默认 `config/prompts/`，可通过以下环境变量覆盖：
+  - `PROMPT_PARSE_INTENT_PATH`：解析意图模板
+  - `PROMPT_REPLY_POLISH_PATH`：回复润色模板
+  - `PROMPT_TOOL_AGENT_SYSTEM_PATH`：Tool Agent 的 system 提示（规则说明）
 
 ### 4.3 可观测
 

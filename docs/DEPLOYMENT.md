@@ -37,21 +37,77 @@ pip install -e .
 
 ## 2. 需要部署哪些服务
 
-会议 Agent 依赖 **LLM**、**Embedding**、**RAG 向量库** 三类能力，按所选配置决定要自建哪些服务。
+会议 Agent 依赖 **LLM**、**Embedding**、**RAG 向量库** 三类能力，按所选配置决定要自建哪些服务、用云还是自建。
 
-| 能力 | 选项 | 是否需自建 |
-|------|------|------------|
-| **LLM** | vllm / openai / dify | vllm 需自建；openai/dify 仅配密钥与地址 |
-| **Embedding** | api / openai | api 需自建（如 vLLM embedding）；openai 仅配密钥 |
-| **向量库** | chroma / qdrant / weaviate | chroma 内嵌无需单独部署；qdrant/weaviate 各需 1 个服务 |
+### 2.1 LLM 服务（必选，三选一）
 
-**典型组合**：
+用于解析用户输入为会议意图、可选做回复润色。
 
-- **全自建（vllm + api + chroma）**：部署 2 个服务 —— ① LLM（vLLM chat） ② Embedding（vLLM embedding 或其它 `/v1/embeddings`）；向量库用 Chroma 内嵌。
-- **全用 OpenAI**：不部署任何服务，只配 `OPENAI_API_KEY`，向量库用 Chroma。
-- **混合**：例如 vllm + openai + chroma，只需部署 1 个 LLM 服务。
+| 方式 | 需要部署/配置 | 配置项 |
+|------|----------------|--------|
+| **vllm**（默认） | 自建 vLLM 服务，挂载 chat 模型 | `LLM_TYPE=vllm`，`VLLM_BASE_URL=http://<主机>:<端口>/v1` |
+| **openai** | 无需自建，用 OpenAI 或兼容 API | `LLM_TYPE=openai`，`OPENAI_API_KEY=...`，可选 `OPENAI_BASE_URL` |
+| **dify** | 使用 Dify 应用 | `LLM_TYPE=dify`，`DIFY_API_KEY=...`，`DIFY_BASE_URL=...` |
 
-详细表格与 `.env` 示例见 [DEPLOY_SERVICES.md](DEPLOY_SERVICES.md)。
+- 选 **vllm**：需部署 **1 个 LLM 服务**（vLLM 提供 OpenAI 兼容的 `/v1/chat/completions`）。
+- 选 **openai/dify**：不用自建 LLM，只配密钥/地址即可。
+
+### 2.2 Embedding 服务（必选，二选一）
+
+用于 RAG：把会议知识、用户问题向量化并检索。默认 **api**（单独 embedding 服务）。
+
+| 方式 | 需要部署/配置 | 配置项 |
+|------|----------------|--------|
+| **api**（默认） | 自建 **1 个 Embedding 服务**，提供 OpenAI 兼容的 `/v1/embeddings` | `EMBEDDING_TYPE=api`，`EMBEDDING_BASE_URL=http://<主机>:<端口>/v1` |
+| **openai** | 无需自建 | `EMBEDDING_TYPE=openai`，`OPENAI_API_KEY=...` |
+
+- 选 **api**：需部署 **1 个 Embedding 服务**（如 vLLM 的 embedding 接口或其它实现 `/v1/embeddings` 的服务）。**用 vLLM Docker 部署 Embedding** 见下文 §5。
+- 选 **openai**：不部署，只配 `OPENAI_API_KEY`。
+
+### 2.3 RAG 向量库（必选，三选一）
+
+存会议知识向量，做相似检索。默认 **chroma**（内嵌，无需单独进程）。
+
+| 方式 | 需要部署 | 配置项 |
+|------|----------|--------|
+| **chroma**（默认） | **不需要单独部署**，应用内嵌 Chroma，数据落盘 | `VECTOR_STORE_TYPE=chroma`，`CHROMA_PERSIST_DIR=./data/chroma_db` |
+| **qdrant** | 部署 1 个 Qdrant 服务 | `VECTOR_STORE_TYPE=qdrant`，`QDRANT_URL=http://<主机>:6333` |
+| **weaviate** | 部署 1 个 Weaviate 服务 | `VECTOR_STORE_TYPE=weaviate`，`WEAVIATE_URL=http://<主机>:8080` |
+
+- 选 **chroma**：不部署，只配目录即可。
+- 选 **qdrant/weaviate**：各需部署 **1 个** 对应服务。
+
+### 2.4 汇总：按典型组合你要部署什么
+
+| 组合 | LLM | Embedding | 向量库 | 需要部署的服务 |
+|------|-----|-----------|--------|----------------|
+| 全自建（vllm + api + chroma） | vllm | api | chroma | **2 个**：① LLM（vLLM chat） ② Embedding（vLLM embedding 或其它 /v1/embeddings） |
+| 全自建 + 独立向量库 | vllm | api | qdrant/weaviate | **3 个**：① LLM ② Embedding ③ Qdrant 或 Weaviate |
+| 用 OpenAI | openai | openai | chroma | **0 个**（只配 `OPENAI_API_KEY`，向量库用内嵌 Chroma） |
+| 混合 | vllm | openai | chroma | **1 个**：仅 LLM（vLLM） |
+
+### 2.5 最小自建方案（vllm + api + chroma）
+
+1. **部署 LLM**：起一个 vLLM，暴露 OpenAI 兼容的 chat 接口（如 `http://<host>:8000/v1`）。
+2. **部署 Embedding**：起一个提供 `/v1/embeddings` 的服务（可与 vLLM 同机不同端口，或同一 vLLM 实例同时提供 chat + embeddings）。
+3. **向量库**：不部署，用默认 Chroma，在应用里设 `CHROMA_PERSIST_DIR=./data/chroma_db`。
+
+`.env` 示例：
+
+```bash
+LLM_TYPE=vllm
+VLLM_BASE_URL=http://<LLM 主机>:8000/v1
+
+EMBEDDING_TYPE=api
+EMBEDDING_BASE_URL=http://<Embedding 主机>:端口/v1
+
+VECTOR_STORE_TYPE=chroma
+CHROMA_PERSIST_DIR=./data/chroma_db
+```
+
+这样只需部署 **LLM 模型服务** 和 **Embedding 模型服务**；RAG 用 Chroma 内嵌，无需单独部署。
+
+**K8s 部署**：若在 Kubernetes 上自建上述服务，见 [K8S_DEPLOY.md](K8S_DEPLOY.md)（vLLM/Embedding/向量库 Helm 或 Deployment 示例、ai-assistant 配置与 Service 发现）。
 
 ---
 
@@ -122,12 +178,119 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 ---
 
-## 5. 详细子文档
+## 5. 用 vLLM Docker 部署 Embedding 模型
+
+vLLM 官方镜像支持挂载 **embedding 模型**，对外提供 OpenAI 兼容的 `/v1/embeddings`，供 RAG 使用。与 vLLM LLM（Chat）同镜像 `vllm/vllm-openai:latest`，仅把模型换成 embedding 模型、端口与容器名区分即可。K8s 部署见 [K8S_DEPLOY.md](K8S_DEPLOY.md) 第 4 节。
+
+### 5.1 与 vLLM LLM（Chat）的对应关系
+
+| 用途 | 镜像 | 端口示例 | 模型示例 | 接口 |
+|------|------|----------|----------|------|
+| **LLM（Chat）** | `vllm/vllm-openai:latest` | 8000 | `Qwen/Qwen2.5-7B-Instruct` | `/v1/chat/completions` |
+| **Embedding**   | `vllm/vllm-openai:latest` | 8001 | `BAAI/bge-small-zh-v1.5`  | `/v1/embeddings` |
+
+本地可同时跑两个容器：LLM 用 8000、Embedding 用 8001。
+
+### 5.2 前置条件
+
+- 已安装 Docker；如需 GPU，安装 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)。
+- 足够内存/显存：小模型（如 bge-small）约 1～2GB。
+
+### 5.3 一键运行 Embedding（GPU）
+
+```bash
+docker run -d \
+  --name vllm-embedding \
+  --gpus all \
+  -p 8001:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  --ipc=host \
+  vllm/vllm-openai:latest \
+  --model BAAI/bge-small-zh-v1.5
+```
+
+- **端口**：容器内 8000，映射主机 8001（避免与 vLLM chat 的 8000 冲突）。
+- **模型**：可换成 `BAAI/bge-m3`、`BAAI/bge-large-zh-v1.5` 等（显存需更大）。
+- **缓存**：`-v ~/.cache/huggingface:...` 挂载 Hugging Face 缓存，首次下载后下次启动复用。若报错 `unknown or invalid runtime name: nvidia`，见下文 §5.9 故障排查。
+
+### 5.4 从 ModelScope（魔搭）下载
+
+国内网络可改用 ModelScope 拉取，启动时加环境变量并挂载魔搭缓存：
+
+```bash
+docker run -d \
+  --name vllm-embedding \
+  --gpus all \
+  -p 8001:8000 \
+  -e VLLM_USE_MODELSCOPE=True \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  -v ~/.cache/modelscope:/root/.cache/modelscope \
+  --ipc=host \
+  vllm/vllm-openai:latest \
+  --model BAAI/bge-small-zh-v1.5
+```
+
+宿主机预下载（可选）：`pip install modelscope` 后 `python -c "from modelscope import snapshot_download; snapshot_download('BAAI/bge-small-zh-v1.5')"`，再挂载 `~/.cache/modelscope`。已预下载时可用本地路径 `--model /root/.cache/modelscope/hub/models/Qwen/Qwen3-Embedding-8B` 启动，无需联网。
+
+### 5.5 无 GPU 时能否用 CPU 跑？
+
+**不能。** 官方镜像为 CUDA 构建，无 GPU 会报 `libcuda.so.1: cannot open shared object file`。可选：① 在有 GPU 的机器/云上起 vLLM，本机 `.env` 里 `EMBEDDING_BASE_URL` 指过去；② 或 `EMBEDDING_TYPE=openai` + `OPENAI_API_KEY` 用云端 Embedding。
+
+### 5.6 验证服务
+
+```bash
+curl -X POST http://localhost:8001/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model":"BAAI/bge-small-zh-v1.5","input":"测试文本"}'
+```
+
+返回 JSON 且含 `data[0].embedding` 即正常。
+
+### 5.7 应用配置
+
+在 `.env` 中指向该 Embedding 服务：
+
+```bash
+EMBEDDING_TYPE=api
+EMBEDDING_BASE_URL=http://localhost:8001/v1
+# 若模型名与上面 --model 一致，可不填；否则用 EMBEDDING_MODEL 指定
+```
+
+### 5.8 常用 Embedding 模型与 Qwen3 示例
+
+| 模型 | 说明 | 显存大致需求 |
+|------|------|----------------|
+| `BAAI/bge-small-zh-v1.5` | 中文小模型，推荐起步 | ~1GB |
+| `BAAI/bge-base-zh-v1.5` / `bge-large-zh-v1.5` | 中文 base/large | ~2GB / ~4GB+ |
+| `BAAI/bge-m3` | 多语言、长文本 | 更大 |
+| `Qwen/Qwen3-Embedding-0.6B` | 0.6B、可与 7B LLM 同卡；需加 `--task embed` | ~1–2GB |
+| `Qwen/Qwen3-Embedding-8B` | 8B、32K 上下文；需加 `--task embed` | ~18GB+ |
+
+Qwen3 系列需显式 `--task embed`，例如：
+
+```bash
+docker run -d --name vllm-embedding --gpus all -p 8001:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface --ipc=host \
+  vllm/vllm-openai:latest \
+  --model Qwen/Qwen3-Embedding-8B --task embed
+```
+
+从魔搭拉取时加 `-e VLLM_USE_MODELSCOPE=True` 和 `-v ~/.cache/modelscope:/root/.cache/modelscope`。更多见 [vLLM 文档 - Pooling/Embedding 模型](https://docs.vllm.ai/en/latest/models/pooling_models/)。
+
+### 5.9 故障排查
+
+- **`Engine core initialization failed`**：看 `docker logs vllm-embedding 2>&1` 该行之前的根因（如 OOM、CUDA 错误）。可尝试加 `-e VLLM_USE_V1=0` 用旧引擎。
+- **`unknown or invalid runtime name: nvidia`**：宿主机安装 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)，执行 `sudo nvidia-ctk runtime configure --runtime=docker`，重启 Docker 后再用 `--gpus all`。
+- **`libcuda.so.1` / `Failed to infer device type`**：官方镜像不支持纯 CPU。在有 GPU 的机器上起容器，或改用远程 Embedding / `EMBEDDING_TYPE=openai`（见 §5.5）。
+- **502 / 连接被拒**：确认容器在跑、端口已映射，且 `EMBEDDING_BASE_URL` 的 host 和端口正确（含 `/v1`）。
+- **OOM**：换更小模型或增大显存。**模型下载慢**：挂载缓存后首次拉取，之后复用；可设 `HUGGING_FACE_HUB_TOKEN` 用私有模型。
+
+---
+
+## 6. 详细子文档
 
 | 文档 | 内容 |
 |------|------|
-| [DEPLOY_SERVICES.md](DEPLOY_SERVICES.md) | 三类依赖的选项、配置项、典型组合与最小自建方案 |
 | [K8S_DEPLOY.md](K8S_DEPLOY.md) | Kubernetes 部署：vLLM（LLM）、Embedding、Qdrant/Weaviate、ai-assistant 的 Helm/Deployment 与配置 |
-| [VLLM_EMBEDDING_DOCKER.md](VLLM_EMBEDDING_DOCKER.md) | 使用 vLLM Docker 部署 Embedding 模型（/v1/embeddings），含 GPU/CPU、ModelScope、故障排查 |
 
-部署自建服务时，先确定「需要部署哪些服务」→ 按 [DEPLOY_SERVICES.md](DEPLOY_SERVICES.md) 配好 `.env`；若用 K8s 或 vLLM Docker 部署 Embedding，再查阅对应子文档。
+部署自建服务时，先按上文 §2 确定「需要部署哪些服务」并配好 `.env`；用 vLLM Docker 部署 Embedding 见 §5；K8s 部署见 K8S_DEPLOY.md。

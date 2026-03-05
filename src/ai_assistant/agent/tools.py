@@ -6,15 +6,16 @@ import logging
 from typing import Any, Optional
 
 from ai_assistant.agent.capabilities.meeting import TOOL_REPLY_ONLY
+from ai_assistant.config.prompt_loader import get_tool_agent_tools_intro
 
 logger = logging.getLogger(__name__)
 TOOL_REPLY_ONLY_NAME = TOOL_REPLY_ONLY
 
 
 def get_tools_schema_for_prompt(capabilities: list[Any]) -> str:
-    intro = """
-你只能输出一个 JSON 对象，且仅此 JSON，不要 markdown 或多余文字。根据用户意图选择 exactly 一个 tool，并填写 arguments。
-"""
+    intro = get_tool_agent_tools_intro()
+    if not intro.endswith("\n"):
+        intro += "\n"
     fragments = [c.schema_fragment() for c in capabilities]
     tool_lists = [c.tool_names() for c in capabilities]
     all_tools = set()

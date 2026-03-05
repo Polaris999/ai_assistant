@@ -26,6 +26,7 @@ from ai_assistant.core.exceptions import AppException, ConfigError
 from ai_assistant.core.serialization import to_json_serializable
 from ai_assistant.core.llm.base import BaseLLM
 from ai_assistant.core.llm.factory import get_llm
+from ai_assistant.core.llm.retry import invoke_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,11 @@ def _build_system_prompt(capabilities: list[Any]) -> str:
     return intro + get_tools_schema_for_prompt(capabilities)
 
 
-def _format_history(history: list[dict[str, str]]) -> str:
+def _format_history(
+    history: list[dict[str, str]],
+    max_chars: int = 0,
+) -> str:
+    """将会话历史格式化为「最近对话」文本。max_chars>0 时从末尾保留不超过 max_chars 字符，避免超长上下文。"""
     if not history:
         return ""
     lines = []
@@ -102,19 +107,25 @@ def _format_history(history: list[dict[str, str]]) -> str:
             lines.append(f"用户：{content}")
         else:
             lines.append(f"助手：{content}")
-    return "最近对话：\n" + "\n".join(lines) + "\n\n"
+    result = "最近对话：\n" + "\n".join(lines) + "\n\n"
+    if max_chars > 0 and len(result) > max_chars:
+        result = "（前文已省略）\n" + result[-max_chars:]
+    return result
 
 
 def _build_user_prompt(
     user_input: str,
     current_time: datetime,
     history: Optional[list[dict[str, str]]] = None,
+    max_history_chars: int = 0,
 ) -> str:
-    prefix = _format_history(history) if history else ""
-    return f"""{prefix}当前时间：{current_time.isoformat()}
-当前用户输入：{user_input}
-
-请输出一个 JSON 对象，包含 "tool" 和 "arguments"。"""
+    from ai_assistant.config.prompt_loader import get_tool_agent_user_prompt
+    prefix = _format_history(history, max_chars=max_history_chars) if history else ""
+    return get_tool_agent_user_prompt(
+        history=prefix,
+        current_time=current_time.isoformat(),
+        user_input=user_input,
+    )
 
 
 def _looks_like_query_rooms(user_input: str) -> bool:
@@ -188,22 +199,28 @@ class ToolAgentRunner:
             _log_chat_request(request_id, "", 0, None, False)
             return {"reply": "请说出或输入您要预定的会议信息。", "booking": None, "error": None}
         now = datetime.now()
-        prompt = _build_user_prompt(user_input, now, history=history)
+        from ai_assistant.config import settings
+        max_history_chars = getattr(settings, "conversation_history_max_chars", 0) or 0
+        prompt = _build_user_prompt(
+            user_input, now, history=history, max_history_chars=max_history_chars
+        )
         t0 = time.perf_counter()
         parse_fallback = False
         tracer = _get_tracer()
+        timeout_sec = getattr(settings, "llm_request_timeout_seconds", 120) or 120
+        retry_count = getattr(settings, "llm_retry_count", 0) or 0
         with _span_ctx(tracer, "tool_agent.invoke") as agent_span:
             if agent_span and hasattr(agent_span, "set_attribute") and request_id:
                 agent_span.set_attribute("request_id", request_id)
-            timeout_sec = 120
             try:
-                from ai_assistant.config import settings
-                timeout_sec = getattr(settings, "llm_request_timeout_seconds", 120) or 120
                 with _span_ctx(tracer, "llm.invoke"):
-                    with ThreadPoolExecutor(max_workers=1) as ex:
-                        text = ex.submit(
-                            lambda: self._llm.invoke(prompt, system=self._system_prompt, temperature=0)
-                        ).result(timeout=timeout_sec)
+                    text = invoke_with_retry(
+                        self._llm,
+                        prompt,
+                        system=self._system_prompt,
+                        timeout_sec=timeout_sec,
+                        retry_count=retry_count,
+                    )
             except FuturesTimeoutError:
                 logger.warning("Tool Agent LLM 调用超时: %ss", timeout_sec)
                 _log_chat_request(request_id, "", (time.perf_counter() - t0) * 1000, "LLM_ERROR", False)

@@ -83,6 +83,8 @@ class Settings(BaseSettings):
     prompt_reply_polish_path: str = ""
     prompt_tool_agent_system_path: str = ""  # 空=包内 tool_agent_system.txt
     llm_request_timeout_seconds: int = 120  # LLM 单次调用超时（秒），超时后抛出 LLM_ERROR
+    llm_retry_count: int = 2  # LLM 调用失败时重试次数（0=不重试），仅对可重试异常指数退避
+    conversation_history_max_chars: int = 0  # 拼入 prompt 的会话历史最大字符数，0=不限制
     langchain_tracing_enabled: bool = False
     langchain_project: str = "ai-assistant"
     use_tool_agent: bool = True  # True=Agent+Tools 调用 IMeetingService；False=原 LangGraph 图

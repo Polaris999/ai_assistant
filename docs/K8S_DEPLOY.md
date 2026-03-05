@@ -138,7 +138,7 @@ spec:
 
 ### 4.1 方式一：再用 vLLM 挂 Embedding 模型（推荐）
 
-很多 vLLM 版本支持 embedding 接口，可单独起一个 vLLM Deployment，只挂 embedding 模型（如 `BAAI/bge-small-zh-v1.5` 或 `BAAI/bge-m3`），与 LLM 分开扩缩容。**本地 Docker 写法**（与上面 vLLM LLM 同镜像、同风格）见 [VLLM_EMBEDDING_DOCKER.md](VLLM_EMBEDDING_DOCKER.md)。
+很多 vLLM 版本支持 embedding 接口，可单独起一个 vLLM Deployment，只挂 embedding 模型（如 `BAAI/bge-small-zh-v1.5` 或 `BAAI/bge-m3`），与 LLM 分开扩缩容。**本地 Docker 写法**（与上面 vLLM LLM 同镜像、同风格）见 [DEPLOYMENT.md](DEPLOYMENT.md#5-用-vllm-docker-部署-embedding-模型) 第 5 节。
 
 - **Helm**：同上，再 `helm install vllm-embedding ...`，换一个 model 名和 Service 名。
 - **Deployment 示例**：与上面 vLLM LLM（3.2 节）类似，改 `--model` 为 embedding 模型、改 Service 名为 `vllm-embedding`。

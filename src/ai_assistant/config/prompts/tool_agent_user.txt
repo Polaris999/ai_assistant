@@ -1,0 +1,4 @@
+{history}当前时间：{current_time}
+当前用户输入：{user_input}
+
+请输出一个 JSON 对象，包含 "tool" 和 "arguments"。
