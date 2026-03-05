@@ -6,7 +6,7 @@ SkillLoader：Skill Catalog 实现，仅负责发现与加载，与具体 Agent�
 - 格式化：format_for_prompt（全文）、format_catalog_for_prompt（仅目录），供任意 Agent 使用。
 
 不包含工具 schema、execute_tool、load_skill 等执行逻辑；执行由 ToolSkillExecutor 承担。
-见 docs/ARCHITECTURE_EXTENSIBILITY.md。
+见 docs/ARCHITECTURE.md。
 """
 from __future__ import annotations
 

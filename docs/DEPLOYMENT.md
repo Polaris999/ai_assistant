@@ -107,7 +107,7 @@ CHROMA_PERSIST_DIR=./data/chroma_db
 
 这样只需部署 **LLM 模型服务** 和 **Embedding 模型服务**；RAG 用 Chroma 内嵌，无需单独部署。
 
-**K8s 部署**：若在 Kubernetes 上自建上述服务，见 [K8S_DEPLOY.md](K8S_DEPLOY.md)（vLLM/Embedding/向量库 Helm 或 Deployment 示例、ai-assistant 配置与 Service 发现）。
+**K8s 部署**：若在 Kubernetes 上自建上述服务，见本文档 §6（Kubernetes 部署）。
 
 ---
 
@@ -180,7 +180,7 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 ## 5. 用 vLLM Docker 部署 Embedding 模型
 
-vLLM 官方镜像支持挂载 **embedding 模型**，对外提供 OpenAI 兼容的 `/v1/embeddings`，供 RAG 使用。与 vLLM LLM（Chat）同镜像 `vllm/vllm-openai:latest`，仅把模型换成 embedding 模型、端口与容器名区分即可。K8s 部署见 [K8S_DEPLOY.md](K8S_DEPLOY.md) 第 4 节。
+vLLM 官方镜像支持挂载 **embedding 模型**，对外提供 OpenAI 兼容的 `/v1/embeddings`，供 RAG 使用。与 vLLM LLM（Chat）同镜像 `vllm/vllm-openai:latest`，仅把模型换成 embedding 模型、端口与容器名区分即可。K8s 部署见本文档 §6（Kubernetes 部署）中的 Embedding 一节。
 
 ### 5.1 与 vLLM LLM（Chat）的对应关系
 
@@ -287,10 +287,64 @@ docker run -d --name vllm-embedding --gpus all -p 8001:8000 \
 
 ---
 
-## 6. 详细子文档
+## 6. Kubernetes 部署
 
-| 文档 | 内容 |
-|------|------|
-| [K8S_DEPLOY.md](K8S_DEPLOY.md) | Kubernetes 部署：vLLM（LLM）、Embedding、Qdrant/Weaviate、ai-assistant 的 Helm/Deployment 与配置 |
+在 K8s 上自建 vLLM（LLM）、Embedding 服务、RAG 向量库，并与本应用对接。
 
-部署自建服务时，先按上文 §2 确定「需要部署哪些服务」并配好 `.env`；用 vLLM Docker 部署 Embedding 见 §5；K8s 部署见 K8S_DEPLOY.md。
+### 6.1 整体架构
+
+```
+                    ┌─────────────────────────────────────────────────────────┐
+                    │                     Kubernetes 集群                       │
+  Ingress/网关       │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │
+  ───────────────►  │  │ meeting-    │  │ vllm-llm    │  │ vllm-embedding  │  │
+                    │  │ agent       │──│ (chat)      │  │ (/v1/embeddings)│  │
+                    │  │             │  └─────────────┘  └────────┬────────┘  │
+                    │  │             │  ┌─────────────┐          │           │
+                    │  │             │──│ qdrant       │◄─────────┘           │
+                    │  └─────────────┘  │ (向量库)      │  (或 Weaviate)      │
+                    └─────────────────────────────────────────────────────────┘
+```
+
+- **meeting-agent**：本应用，通过环境变量连上述服务。
+- **vLLM（LLM）**：提供 `/v1/chat/completions`。
+- **Embedding 服务**：提供 `/v1/embeddings`；可与 vLLM 同栈再起一个 vLLM 挂 embedding 模型。
+- **向量库**：Qdrant / Weaviate，或用 Chroma 内嵌于本应用（无需单独部署）。
+
+### 6.2 前置条件
+
+- Kubernetes 集群（1.24+）；跑 vLLM 需 GPU 节点并安装 [NVIDIA Device Plugin](https://github.com/NVIDIA/k8s-device-plugin)。
+- `kubectl`、`helm` 已安装；私有镜像需配置 imagePullSecrets。
+
+### 6.3 部署 vLLM（LLM）
+
+vLLM 提供 Helm Chart（以 [vLLM Helm 文档](https://docs.vllm.ai/deployment/frameworks/helm.html) 为准）：
+
+```bash
+helm repo add vllm https://vllm-project.github.io/vllm-helm
+helm repo update
+kubectl create namespace ai-serving
+# 自定义 values：model.name、gpu.count、resources 等
+helm upgrade --install vllm-llm vllm/vllm -n ai-serving -f vllm-llm-values.yaml
+```
+
+无 Helm 时可用 Deployment + Service：镜像 `vllm/vllm-openai:latest`，args `--model=Qwen/Qwen2.5-7B-Instruct`，端口 8000，资源 limits 含 `nvidia.com/gpu: "1"`。集群内访问示例：`http://vllm-llm.ai-serving.svc.cluster.local:8000/v1`。
+
+### 6.4 部署 Embedding 服务
+
+- **方式一**：再起一个 vLLM Deployment 挂 embedding 模型（如 `BAAI/bge-small-zh-v1.5`），与 LLM 分开；集群内示例：`http://vllm-embedding.ai-serving.svc.cluster.local:8000/v1`。
+- **方式二**：自建提供 `/v1/embeddings` 的服务（如 FastAPI + sentence-transformers），本应用 `EMBEDDING_BASE_URL` 指向其 `/v1` 即可。
+
+### 6.5 部署 RAG 向量库（可选）
+
+- **Qdrant**：`helm repo add qdrant https://qdrant.github.io/qdrant-helm`，部署后集群内 `http://qdrant.vector-db.svc.cluster.local:6333`。
+- **Weaviate**：见 [Weaviate K8s 文档](https://weaviate.io/developers/weaviate/installation/kubernetes)，一般 8080。
+- **Chroma 内嵌**：不单独部署，本应用 `VECTOR_STORE_TYPE=chroma`，数据目录挂 PVC。
+
+### 6.6 部署本应用（meeting-agent）
+
+ConfigMap 示例：`LLM_TYPE=vllm`，`VLLM_BASE_URL=http://vllm-llm.ai-serving.svc.cluster.local:8000/v1`，`EMBEDDING_TYPE=api`，`EMBEDDING_BASE_URL=http://vllm-embedding.../v1`，`VECTOR_STORE_TYPE=qdrant`（或 chroma），`QDRANT_URL=...`。敏感项放 Secret。Deployment 用 `envFrom` 引用 ConfigMap/Secret；若用 Chroma，将 `CHROMA_PERSIST_DIR` 对应目录挂到 PVC。Service 暴露 8000，供 Ingress/网关转发。
+
+### 6.7 服务发现与校验顺序
+
+集群内通过 **Service 名.命名空间.svc.cluster.local:端口** 访问。建议顺序：① 向量库（若 Qdrant/Weaviate）→ ② vLLM LLM → ③ Embedding → ④ meeting-agent。健康检查 `GET /api/v1/health` 中 `checks.agent` 为 `ok` 即表示连上 LLM/Embedding 并完成初始化。

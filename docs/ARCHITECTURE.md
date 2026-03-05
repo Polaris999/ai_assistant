@@ -160,7 +160,7 @@
 
 ### 6.2 推荐流程（意图优先）与 LLM 交互规范
 
-**与 LLM 交互的完整阶段定义、落点与自检清单见 [LLM 交互流程规范](LLM_INTERACTION_FLOW.md)**。所有 Agent 实现须遵循该规范，避免在业务代码中零散打补丁。
+所有 Agent 实现须遵循「意图短路 → LLM/工具 → 校验 → 执行 → 响应」的流程，避免在业务代码中零散打补丁；落点与自检见本节 6.4。
 
 高层流程（意图优先）：
 
@@ -204,7 +204,7 @@
 
 ### 6.4 标准处理流程（意图 → 参数 → 校验 → 执行 → 响应）
 
-**权威定义与实现落点见 [LLM 交互流程规范](LLM_INTERACTION_FLOW.md)**；本节与之一致，仅保留摘要。
+本节与规范一致，摘要如下。
 
 业内通用：NLU/意图与实体 → 槽位填充 → **校验（代码内，通过后才调后端）** → 执行 → 响应。参考：Rasa [Dialogue Management](https://rasa.com/docs/learn/concepts/dialogue-management)、[Slot Validation](https://rasa.com/docs/rasa/next/slot-validation-actions/)；Microsoft [Add NLU to your bot](https://learn.microsoft.com/en-us/azure/bot-service/bot-builder-howto-v4-luis)。
 
@@ -228,7 +228,7 @@
 
 | 环节 | 职责 | 本项目当前落点 | 建议 |
 |------|------|----------------|------|
-| **① 意图短路（Pre-LLM）** | 规则可识别的意图（问候/闲聊等）直接回复，不调 LLM | `agent/llm_flow.run_pre_llm_stage` + LangGraph Runner 入口，CHITCHAT 则 `reply_for_chitchat` 后 return | 新增可短路意图时在 intent/llm_flow 统一扩展，见 [LLM 交互流程规范](LLM_INTERACTION_FLOW.md) 阶段 1 |
+| **① 意图短路（Pre-LLM）** | 规则可识别的意图（问候/闲聊等）直接回复，不调 LLM | `agent/llm_flow.run_pre_llm_stage` + LangGraph Runner 入口，CHITCHAT 则 `reply_for_chitchat` 后 return | 新增可短路意图时在 intent/llm_flow 统一扩展 |
 | **② 意图识别（LLM）** | 判断用户要「查/订/取消」等 | LLM 一次输出 `tool` + `arguments`（意图与参数同步） | Prompt 中明确：说了相对时间就推断 start_time 并走 book_meeting，避免误走 reply_only |
 | **③ 参数抽取** | 从自然语言中解析出 start_time、title、duration 等 | 同上，LLM 填 arguments | 相对时间（如「8天后」）须在 prompt 中要求推断为 ISO 时间 |
 | **④ 参数/规则校验** | 格式 + **业务规则**（如最多提前 7 天、单次不超过 4 小时） | 技能层 `execute()` 内：解析后先做规则校验，再调 service | **规则必须在代码中校验**，与业内「Validation 在 Action 前」一致；新增规则在 skill execute 前增加校验并返回明确 error |

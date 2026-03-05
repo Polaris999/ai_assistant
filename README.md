@@ -4,7 +4,7 @@
 
 ## 技术栈
 
-- **Agent**：LangGraph `create_react_agent` + 技能转 LangChain Tool（意图短路 → ReAct → 技能执行）；详见 [LLM 交互流程规范](docs/LLM_INTERACTION_FLOW.md)。
+- **Agent**：LangGraph `create_react_agent` + 技能转 LangChain Tool（意图短路 → ReAct → 技能执行）；详见 [技术架构](docs/ARCHITECTURE.md)。
 - **技能层**：技能由 `skill_docs/` 发现，会议等通过 GenericSkill 调 HTTP 后端执行；订会/提醒由技能后端承担。
 - **胶水层**：LLM（vllm / openai / dify）、Embeddings（openai / api）、向量库（chroma / qdrant / weaviate）。
 - **RAG**：知识库 API（会议等默认知识、检索/追加/清空），供管理端或技能后端使用。
@@ -32,16 +32,9 @@ uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 | 类型 | 文档 | 说明 |
 |------|------|------|
-| **核心流程** | [docs/LLM_INTERACTION_FLOW.md](docs/LLM_INTERACTION_FLOW.md) | LLM 交互五阶段规范（意图短路 → LLM → 解析回退 → 执行 → 响应） |
-| **Agent 模式与命名** | [docs/AGENT_MODES_AND_NAMING.md](docs/AGENT_MODES_AND_NAMING.md) | 业界命名（Function Calling / ReAct / Plan-and-Execute）、与项目对应、是否需全实现 |
-| **自研与框架选型** | [docs/AGENT_FRAMEWORKS.md](docs/AGENT_FRAMEWORKS.md) | 现成框架（LangGraph、CrewAI 等）能否支撑、何时迁框架/何时继续自研 |
-| **统一框架迁移** | [docs/UNIFIED_FRAMEWORK_MIGRATION.md](docs/UNIFIED_FRAMEWORK_MIGRATION.md) | 自造轮子审计、LangGraph 接入、AGENT_TYPE=langgraph 使用说明 |
-| **工具与 LangChain** | [docs/TOOLS_AND_LANGCHAIN.md](docs/TOOLS_AND_LANGCHAIN.md) | 为何用技能+tools.json 而非 LangChain @tool、何时可引入 @tool |
-| **代码审查与最佳实践** | [docs/CODE_REVIEW_ARCHITECT_REPORT.md](docs/CODE_REVIEW_ARCHITECT_REPORT.md) | 架构师视角的全面审查：分层、技术选型、逻辑质量、风格、文档与可操作改进建议 |
-| **开发手册** | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 框架复用、新增 Agent、开发与测试、代码规范 |
-| **技术架构** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层架构、核心流程、框架设计与评论 |
-| **Skill 设计审核** | [docs/SKILL_DESIGN_REVIEW.md](docs/SKILL_DESIGN_REVIEW.md) | 技能封装/步骤/约束、少编码扩展、业内做法对照 |
+| **技术架构** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统目标、分层架构、核心流程、框架设计与意图/技能落地 |
 | **安装部署** | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 环境与依赖服务、本地/生产部署、K8s、vLLM Embedding |
+| **开发手册** | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 框架复用、新增 Agent、开发与测试、代码规范 |
 
 ---
 
@@ -70,6 +63,7 @@ agent/
 ## 常见问题
 
 - **WinError 1114 / c10.dll**：若仅用 vLLM + 单独 Embedding（不跑本地模型），可 `pip uninstall torch -y` 后启动。
+- **vLLM 返回 400（tool choice requires ...）**：这是 vLLM 未启用工具调用导致。请用支持 tool calling 的方式启动 vLLM OpenAI server，例如增加 `--enable-auto-tool-choice --tool-call-parser hermes`（或 `mistral`），或切换 `LLM_TYPE=openai`。
 - **向量库/Embedding 不可达**：使用 `ai-assistant --check-vector-store`、`ai-assistant --check-embedding` 自检；详见 [安装部署](docs/DEPLOYMENT.md)。
 
 更多使用说明、扩展方式与部署细节见上述三类文档。

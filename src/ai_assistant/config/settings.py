@@ -78,7 +78,6 @@ class Settings(BaseSettings):
     local_whisper_model: str = "base"  # 语音转文字本地模型（faster-whisper）
     log_level: str = "INFO"
     llm_request_timeout_seconds: int = 120  # LLM 单次调用超时（秒），超时后抛出 LLM_ERROR
-    llm_retry_count: int = 2  # LLM 调用失败时重试次数（0=不重试），仅对可重试异常指数退避
     conversation_history_max_chars: int = 0  # 拼入 prompt 的会话历史最大字符数，0=不限制
     langchain_tracing_enabled: bool = False
     langchain_project: str = "ai-assistant"
@@ -88,6 +87,8 @@ class Settings(BaseSettings):
     use_skill_catalog_only: bool = False
     # 技能 HTTP 执行超时（秒），GenericSkill 调用 executor.url 时使用
     skill_http_timeout_seconds: int = 30
+    # LangGraph ReAct 最大递归步数（防止工具反复失败导致同一请求内多次 tool 循环）
+    agent_recursion_limit: int = 8
     # 会议预约规则：最多提前天数（技能校验与回退文案用）
     meeting_max_days_ahead: int = 7
     # Agent 固定为 LangGraph（create_react_agent + 技能 Tool），无其他类型切换

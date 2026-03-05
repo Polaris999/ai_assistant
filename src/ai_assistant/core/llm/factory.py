@@ -25,7 +25,7 @@ def _chat_openai_for_vllm() -> BaseLLM:
         base_url=base_url.rstrip("/"),
         api_key=api_key if api_key != "no-key" else None,
         temperature=0,
-        request_timeout=timeout,
+        timeout=timeout,
     )
     return LangChainChatModelAdapter(chat)
 
@@ -43,7 +43,7 @@ def _chat_openai_for_openai() -> BaseLLM:
         api_key=api_key,
         base_url=base_url,
         temperature=0,
-        request_timeout=timeout,
+        timeout=timeout,
     )
     return LangChainChatModelAdapter(chat)
 

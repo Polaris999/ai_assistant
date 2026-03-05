@@ -1,7 +1,7 @@
 """
 LLM 交互流程规范落点：阶段 1（输入校验与意图短路）统一实现，供 LangGraph Agent 复用。
 
-详见 docs/LLM_INTERACTION_FLOW.md。新增可短路意图时在此模块与 intent.py 中扩展，避免在各 Agent 内零散打补丁。
+详见 docs/ARCHITECTURE.md §6。新增可短路意图时在此模块与 intent.py 中扩展，避免在各 Agent 内零散打补丁。
 """
 from __future__ import annotations
 

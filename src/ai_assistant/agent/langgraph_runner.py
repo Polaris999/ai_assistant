@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from ai_assistant.agent.langgraph_tools import reset_langgraph_context, set_langgraph_context, skills_to_langchain_tools
 from ai_assistant.agent.llm_flow import run_pre_llm_stage
 from ai_assistant.agent.skills.manager import SkillManager
 from ai_assistant.core.conversation import get_conversation_store
-from ai_assistant.core.exceptions import AppException, ConfigError
+from ai_assistant.core.exceptions import AppException, ConfigError, LLMError
 from ai_assistant.core.serialization import to_json_serializable
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def _get_langchain_chat_model() -> Any:
             api_key=api_key,
             base_url=base_url,
             temperature=0,
-            request_timeout=timeout,
+            timeout=timeout,
         )
     if llm_type == "vllm":
         from langchain_openai import ChatOpenAI
@@ -49,9 +49,9 @@ def _get_langchain_chat_model() -> Any:
         return ChatOpenAI(
             model=model,
             base_url=base_url.rstrip("/"),
-            api_key=api_key if api_key != "no-key" else None,
+            api_key=cast(Any, api_key if api_key != "no-key" else None),
             temperature=0,
-            request_timeout=timeout,
+            timeout=timeout,
         )
     raise ConfigError(f"LangGraph 当前仅支持 llm_type=openai 或 vllm，当前: {llm_type}")
 
@@ -85,6 +85,10 @@ class LangGraphRunner:
         for skill in self._manager.get_skills():
             if getattr(skill, "warmup", None):
                 skill.warmup()
+
+    def is_ready(self) -> bool:
+        """健康检查就绪：Runner 创建成功即可视为就绪。"""
+        return True
 
     def invoke(
         self,
@@ -129,17 +133,46 @@ class LangGraphRunner:
                     else:
                         messages.append(AIMessage(content=content))
             messages.append(HumanMessage(content=user_input))
-            config = {}
+            from langchain_core.runnables import RunnableConfig
+            config: RunnableConfig = {}
             if request_id:
-                config["metadata"] = {"request_id": request_id}
-            result = self._agent.invoke({"messages": messages}, config=config)
+                config["metadata"] = {"request_id": request_id, "conversation_id": cid}
+            from ai_assistant.config import settings
+            recursion_limit = int(getattr(settings, "agent_recursion_limit", 0) or 0)
+            if recursion_limit > 0:
+                config["recursion_limit"] = recursion_limit
+            try:
+                result = self._agent.invoke({"messages": messages}, config=config)
+            except Exception as e:
+                err_text = str(e)
+                # vLLM OpenAI 兼容端点：未启用 tool calling 时会返回该错误
+                if '"auto" tool choice requires --enable-auto-tool-choice' in err_text:
+                    raise ConfigError(
+                        "vLLM 未启用工具调用（tool choice=auto）。请用支持 tool calling 的方式启动 vLLM，或切换 LLM_TYPE=openai。",
+                        details={
+                            "hint": "为 vLLM OpenAI server 增加参数：--enable-auto-tool-choice --tool-call-parser hermes（或 mistral）",
+                            "vllm_base_url": getattr(__import__("ai_assistant.config", fromlist=["settings"]).settings, "vllm_base_url", ""),
+                            "request_id": request_id or "",
+                            "conversation_id": cid,
+                        },
+                    ) from e
+                logger.warning("LangGraph LLM 调用失败: %s", err_text)
+                raise LLMError(
+                    "LLM 调用失败",
+                    details={
+                        "error": err_text,
+                        "request_id": request_id or "",
+                        "conversation_id": cid,
+                    },
+                ) from e
             last = (result.get("messages") or [])[-1] if result else None
             content = getattr(last, "content", None) or (last if isinstance(last, str) else "") or ""
             reply = content.strip() if content else "处理完成。"
             last_tool = context.get("_last_tool_result")
             if last_tool and isinstance(last_tool, dict):
                 if last_tool.get("error"):
-                    code = last_tool.get("error") if last_tool.get("error") in ("RUNTIME_ERROR", "CONFIG_ERROR") else "BUSINESS_ERROR"
+                    err_code = str(last_tool.get("error") or "")
+                    code = err_code if err_code in ("RUNTIME_ERROR", "CONFIG_ERROR") else "BUSINESS_ERROR"
                     raise AppException(
                         "success",
                         code=code,

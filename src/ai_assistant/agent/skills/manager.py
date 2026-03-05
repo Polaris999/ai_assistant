@@ -4,7 +4,7 @@ SkillManager：技能门面，组合「Skill Catalog（发现/加载）」与「
 - **Catalog**：发现、加载 SKILL.md，格式化为 prompt 片段（可选）。
 - **执行**：由 ToolSkillExecutor 提供技能实例、execute_tool、execute_load_skill，供 LangGraph Agent（langgraph_tools）使用。
 
-见 docs/ARCHITECTURE_EXTENSIBILITY.md。
+见 docs/ARCHITECTURE.md。
 """
 from __future__ import annotations
 

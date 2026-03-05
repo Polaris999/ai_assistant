@@ -2,7 +2,7 @@
 
 - 工具定义：技能声明式 schema（skill_docs/*/tools.json），执行走 Skill.execute（含 HTTP 后端）。
 - Agent 主路径：langgraph_tools.skills_to_langchain_tools 将技能转为 LangChain StructuredTool，由 create_react_agent 调用。
-- 本模块：get_tools_schema_for_prompt 供可选「拼 system 文案」；execute_tool 供技能层执行；详见 docs/TOOLS_AND_LANGCHAIN.md。
+- 本模块：get_tools_schema_for_prompt 供可选「拼 system 文案」；execute_tool 供技能层执行；详见 docs/ARCHITECTURE.md。
 """
 from __future__ import annotations
 
