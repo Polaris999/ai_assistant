@@ -23,7 +23,7 @@
 | 维度 | 说明 |
 |------|------|
 | **控制力与可定制** | Agent 循环、Tool 定义、校验规则、提示词模板、会话与记忆策略均在自己代码中，可任意改逻辑、加能力、接内部系统。 |
-| **架构清晰** | 分层明确（api → agent → services/rag → core），协议（AgentRunner、Capability）统一，便于扩展和测试。 |
+| **架构清晰** | 分层明确（api → agent → services/rag → core），协议（AgentRunner、Skill）统一，便于扩展和测试。 |
 | **多 LLM 可选** | 同一套业务可切换 vLLM / OpenAI / Dify，不绑死单一厂商；Dify 仅为其中一个 LLM 选项。 |
 | **数据与部署自主** | 会话存储（内存/Redis）、向量库（Chroma/Qdrant/Weaviate）、知识库 CRUD、会议数据与提醒均在自有服务内，数据与部署完全可控。 |
 | **业务深度集成** | 会议规则校验、last_booking_id 会话联想、ReminderScheduler、IMeetingService 等与业务强相关，易于对接内部预约系统或替换实现。 |
@@ -65,7 +65,7 @@
 
 | 对比项 | 当前项目（1agent） | Dify 平台搭建 |
 |--------|--------------------|-------------------------------|
-| **Agent/流程** | 自建（Tool Agent / LangGraph），完全可控 | Dify 工作流编排，受平台能力约束 |
+| **Agent/流程** | 自建（LangGraph + 技能），完全可控 | Dify 工作流编排，受平台能力约束 |
 | **LLM** | 可接 vLLM / OpenAI / Dify 等 | 通常使用 Dify 配置的模型 |
 | **RAG/知识库** | 自建，多向量库可选，API 自控 | Dify 知识库与检索，界面管理 |
 | **会话与记忆** | 自建（内存/Redis），可扩展 | Dify 内置多轮与记忆 |

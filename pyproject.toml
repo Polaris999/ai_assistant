@@ -5,18 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ai-assistant"
 version = "1.0.0"
-description = "统一对话助手（LangChain + LangGraph + RAG，支持会议预定等能力）"
+description = "统一对话助手（LangChain + LangGraph + Skills + RAG，支持会议预定等技能）"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "langchain-core>=0.3.0,<0.4",
     "langchain-text-splitters>=0.3.0,<0.4",
+    "langchain-openai>=0.2.0",
     "langgraph>=0.2.0,<0.3",
     "requests>=2.32.0",
     "chromadb>=0.4.0",
     "langchain-chroma>=0.1.0",
     "SpeechRecognition>=3.10.0",
-    "apscheduler>=3.10.0",
     "pydantic>=2.0.0,<3",
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
@@ -46,6 +46,10 @@ qdrant = [
 weaviate = [
     "langchain-weaviate>=0.0.20",
     "weaviate-client>=4.4.0",
+]
+# 定时任务（若需进程内调度，如提醒；当前提醒由技能后端承担）
+scheduler = [
+    "apscheduler>=3.10.0",
 ]
 # 可观测：OpenTelemetry 链路（可选 pip install -e '.[otel]'）
 otel = [

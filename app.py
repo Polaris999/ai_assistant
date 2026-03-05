@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Assistant",
-    description="统一对话助手，支持会议预定、查会议室、取消等；LangChain+LangGraph+RAG，LLM/Embeddings/向量库按配置切换（vllm、openai、dify、api、chroma、qdrant、weaviate）",
+    description="统一对话助手（LangChain + LangGraph + Skills + RAG），支持会议预定、查会议室、取消等；LLM/Embeddings/向量库按配置切换。",
     version=__version__,
     lifespan=lifespan,
     docs_url="/docs" if _DOCS_ENABLED else None,

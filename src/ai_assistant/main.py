@@ -16,14 +16,37 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="会议预定 Agent（LangChain+LangGraph+Dify+RAG）")
+    parser = argparse.ArgumentParser(description="会议预定 Agent（Tool Use / Plan-and-Execute + 技能层 + RAG）")
     parser.add_argument("--check-vllm", action="store_true", help="验证 vLLM 配置是否可达")
     parser.add_argument("--check-embedding", action="store_true", help="验证 Embedding 配置是否可达/可用")
     parser.add_argument("--check-vector-store", action="store_true", help="验证当前配置的向量库是否可达/可用")
     parser.add_argument("--text", type=str, help="直接传入文本，例如：明天下午3点开项目会")
     parser.add_argument("--voice", type=str, help="语音文件路径（如 .wav），将先转文字再预定")
     parser.add_argument("--no-whisper", action="store_true", help="语音文件时使用本地识别而非 Whisper")
+    subparsers = parser.add_subparsers(dest="command", help="子命令")
+    p_create = subparsers.add_parser("create-skill", help="创建新技能脚手架（skill_docs/<id>/SKILL.md），对齐 Anthropic/LangChain skill-creator")
+    p_create.add_argument("skill_id", help="技能 ID，即目录名（小写字母、数字、连字符、下划线）")
+    p_create.add_argument("--name", default="", help="显示名称，默认用 skill_id")
+    p_create.add_argument("--description", default="", help="简短描述")
+    p_create.add_argument("--http-url", default="", help="无代码技能：填写后将在 frontmatter 写入 executor.url")
+    p_create.add_argument("--overwrite", action="store_true", help="覆盖已存在的 SKILL.md")
     args = parser.parse_args()
+
+    if getattr(args, "command", None) == "create-skill":
+        try:
+            from ai_assistant.config.skill_creator import create_skill
+            path = create_skill(
+                args.skill_id,
+                name=args.name or None,
+                description=args.description or None,
+                http_url=args.http_url or None,
+                overwrite=args.overwrite,
+            )
+            print(f"已创建: {path}")
+        except ValueError as e:
+            logger.error("%s", e)
+            sys.exit(1)
+        sys.exit(0)
 
     if args.check_vllm:
         ok = check_vllm()

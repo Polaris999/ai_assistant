@@ -33,7 +33,6 @@ class Settings(BaseSettings):
 
     # --- LLM（llm_type: vllm | openai | dify）---
     llm_type: str = "vllm"
-    reply_llm_type: str = ""  # 空=不润色；可填 vllm/openai/dify 用另一套 LLM
     # vLLM（llm_type=vllm 时必填 VLLM_BASE_URL）
     vllm_base_url: str = "http://localhost:8000/v1"
     vllm_chat_model: str = ""
@@ -77,17 +76,21 @@ class Settings(BaseSettings):
 
     # --- 其他 ---
     local_whisper_model: str = "base"  # 语音转文字本地模型（faster-whisper）
-    default_remind_minutes: int = 15
     log_level: str = "INFO"
-    prompt_parse_intent_path: str = ""  # 空=包内默认
-    prompt_reply_polish_path: str = ""
-    prompt_tool_agent_system_path: str = ""  # 空=包内 tool_agent_system.txt
     llm_request_timeout_seconds: int = 120  # LLM 单次调用超时（秒），超时后抛出 LLM_ERROR
     llm_retry_count: int = 2  # LLM 调用失败时重试次数（0=不重试），仅对可重试异常指数退避
     conversation_history_max_chars: int = 0  # 拼入 prompt 的会话历史最大字符数，0=不限制
     langchain_tracing_enabled: bool = False
     langchain_project: str = "ai-assistant"
-    use_tool_agent: bool = True  # True=Agent+Tools 调用 IMeetingService；False=原 LangGraph 图
+    # 技能启用列表：逗号分隔的 skill_id（与 skill_docs 子目录名一致），空=按 skill_docs 发现全部
+    enabled_skills: str = ""
+    # 是否仅将技能目录注入 system prompt（渐进式披露）：True=仅 name+description，通过 load_skill 按需加载全文；False=注入全部技能全文
+    use_skill_catalog_only: bool = False
+    # 技能 HTTP 执行超时（秒），GenericSkill 调用 executor.url 时使用
+    skill_http_timeout_seconds: int = 30
+    # 会议预约规则：最多提前天数（技能校验与回退文案用）
+    meeting_max_days_ahead: int = 7
+    # Agent 固定为 LangGraph（create_react_agent + 技能 Tool），无其他类型切换
 
     # --- 会话存储（内存 | Redis）---
     # 若需用 Redis 存会话历史，配置 REDIS_HOST（或 REDIS_URL）；未配置则使用进程内内存

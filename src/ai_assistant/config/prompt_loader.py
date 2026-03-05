@@ -1,23 +1,16 @@
 # config/prompt_loader.py
-"""从配置或默认文件加载 Prompt 模板，支持按环境覆盖。模板在进程内缓存，修改文件或配置后需重启进程生效。"""
+"""Prompt 模板加载：从 config/prompts 或配置路径读取，进程内缓存。主 Agent 为 LangGraph，此处供可选 system 文案拼接（如 get_tools_schema_for_prompt）。"""
 import logging
 from pathlib import Path
 from typing import Optional
-
-from langchain_core.prompts import PromptTemplate
 
 from ai_assistant.config import settings
 
 logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
-# 项目根目录（prompts -> config -> ai_assistant -> src -> 根）
 _ROOT = _PROMPTS_DIR.parent.parent.parent.parent
-_parse_intent_cache: Optional[PromptTemplate] = None
-_reply_polish_cache: Optional[PromptTemplate] = None
-_tool_agent_system_cache: Optional[str] = None
-_tool_agent_tools_intro_cache: Optional[str] = None
-_tool_agent_user_template_cache: Optional[str] = None
+_prompt_tools_intro_cache: Optional[str] = None
 
 
 def _load_template(path: Path) -> str:
@@ -30,68 +23,11 @@ def _resolve_path(path_conf: str) -> Path:
     return p if p.is_absolute() else _ROOT / path_conf
 
 
-def get_parse_intent_template() -> PromptTemplate:
-    """解析意图用 Prompt 模板：优先使用 PROMPT_PARSE_INTENT_PATH，否则使用包内默认。"""
-    global _parse_intent_cache
-    if _parse_intent_cache is not None:
-        return _parse_intent_cache
-    path_conf = getattr(settings, "prompt_parse_intent_path", "").strip()
-    try:
-        path = _resolve_path(path_conf) if path_conf else _PROMPTS_DIR / "parse_intent.txt"
-        if path_conf and not path.exists():
-            logger.warning("自定义 parse_intent 路径不存在 %s，使用默认", path)
-            path = _PROMPTS_DIR / "parse_intent.txt"
-        content = _load_template(path)
-    except Exception as e:
-        logger.warning("加载 parse_intent 模板失败，使用默认: %s", e)
-        content = _load_template(_PROMPTS_DIR / "parse_intent.txt")
-    _parse_intent_cache = PromptTemplate.from_template(content)
-    return _parse_intent_cache
-
-
-def get_reply_polish_template() -> PromptTemplate:
-    """回复润色用 Prompt 模板：优先使用 PROMPT_REPLY_POLISH_PATH，否则使用包内默认。"""
-    global _reply_polish_cache
-    if _reply_polish_cache is not None:
-        return _reply_polish_cache
-    path_conf = getattr(settings, "prompt_reply_polish_path", "").strip()
-    try:
-        path = _resolve_path(path_conf) if path_conf else _PROMPTS_DIR / "reply_polish.txt"
-        if path_conf and not path.exists():
-            logger.warning("自定义 reply_polish 路径不存在 %s，使用默认", path)
-            path = _PROMPTS_DIR / "reply_polish.txt"
-        content = _load_template(path)
-    except Exception as e:
-        logger.warning("加载 reply_polish 模板失败，使用默认: %s", e)
-        content = _load_template(_PROMPTS_DIR / "reply_polish.txt")
-    _reply_polish_cache = PromptTemplate.from_template(content)
-    return _reply_polish_cache
-
-
-def get_tool_agent_system_intro(max_days: int = 7) -> str:
-    """Tool Agent 的 system 提示词前半段（规则说明）。优先 PROMPT_TOOL_AGENT_SYSTEM_PATH，否则使用包内默认。占位符 {max_days} 由参数注入。"""
-    global _tool_agent_system_cache
-    if _tool_agent_system_cache is not None:
-        return _tool_agent_system_cache.format(max_days=max_days)
-    path_conf = getattr(settings, "prompt_tool_agent_system_path", "").strip()
-    try:
-        path = _resolve_path(path_conf) if path_conf else _PROMPTS_DIR / "tool_agent_system.txt"
-        if path_conf and not path.exists():
-            logger.warning("自定义 tool_agent_system 路径不存在 %s，使用默认", path)
-            path = _PROMPTS_DIR / "tool_agent_system.txt"
-        content = _load_template(path)
-    except Exception as e:
-        logger.warning("加载 tool_agent_system 模板失败，使用默认: %s", e)
-        content = _load_template(_PROMPTS_DIR / "tool_agent_system.txt")
-    _tool_agent_system_cache = content
-    return _tool_agent_system_cache.format(max_days=max_days)
-
-
-def get_tool_agent_tools_intro() -> str:
-    """Tool Agent 工具说明头（JSON 输出约束）。默认包内 tool_agent_tools_intro.txt，进程内缓存。"""
-    global _tool_agent_tools_intro_cache
-    if _tool_agent_tools_intro_cache is not None:
-        return _tool_agent_tools_intro_cache
+def get_prompt_tools_intro() -> str:
+    """可选工具说明头（用于 get_tools_schema_for_prompt 拼 system 文案）。默认包内 tool_agent_tools_intro.txt，进程内缓存。"""
+    global _prompt_tools_intro_cache
+    if _prompt_tools_intro_cache is not None:
+        return _prompt_tools_intro_cache
     try:
         content = _load_template(_PROMPTS_DIR / "tool_agent_tools_intro.txt")
     except Exception as e:
@@ -100,24 +36,5 @@ def get_tool_agent_tools_intro() -> str:
             "你只能输出一个 JSON 对象，且仅此 JSON；不要 <think>、不要 markdown、不要多余文字。"
             "根据用户意图选择 exactly 一个 tool，并填写 arguments。\n"
         )
-    _tool_agent_tools_intro_cache = content
-    return _tool_agent_tools_intro_cache
-
-
-def get_tool_agent_user_prompt(history: str, current_time: str, user_input: str) -> str:
-    """Tool Agent 单轮 user prompt。占位符：history、current_time、user_input。默认包内 tool_agent_user.txt。"""
-    global _tool_agent_user_template_cache
-    if _tool_agent_user_template_cache is None:
-        try:
-            _tool_agent_user_template_cache = _load_template(_PROMPTS_DIR / "tool_agent_user.txt")
-        except Exception as e:
-            logger.warning("加载 tool_agent_user 失败，使用默认: %s", e)
-            _tool_agent_user_template_cache = (
-                "{history}当前时间：{current_time}\n当前用户输入：{user_input}\n\n"
-                "请输出一个 JSON 对象，包含 \"tool\" 和 \"arguments\"。\n"
-            )
-    return _tool_agent_user_template_cache.format(
-        history=history,
-        current_time=current_time,
-        user_input=user_input,
-    )
+    _prompt_tools_intro_cache = content
+    return _prompt_tools_intro_cache

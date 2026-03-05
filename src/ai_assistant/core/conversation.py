@@ -1,6 +1,6 @@
 """
 会话历史存储：按 conversation_id 保存最近 N 轮对话，供多轮澄清与上下文补全。
-并维护每会话的通用上下文键值（如 last_booking_id、后续 last_ticket_id 等），供各能力联想。
+并维护每会话的通用上下文键值（如 last_booking_id、后续 last_ticket_id 等），供各技能做槽位联想。
 业内做法：请求带 conversation_id（可选），响应带回；服务端按 id 取历史拼入 LLM 输入。
 默认进程内存储；配置 REDIS_HOST 或 REDIS_URL 时使用 Redis 存储。
 """
@@ -22,7 +22,7 @@ DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 20
 
 
 class ConversationStore:
-    """进程内会话历史：conversation_id -> [消息...]；及每会话的通用 session 键值（各能力共用）。"""
+    """进程内会话历史：conversation_id -> [消息...]；及每会话的通用 session 键值（各技能共用，如槽位联想）。"""
 
     def __init__(self, max_messages_per_conversation: int = DEFAULT_MAX_MESSAGES_PER_CONVERSATION):
         self._store: dict[str, list[MessageDict]] = {}
@@ -53,13 +53,13 @@ class ConversationStore:
                 self._store[conversation_id] = messages[-self._max :]
 
     def clear(self, conversation_id: str) -> None:
-        """清空该会话（可选能力，如用户说「重新开始」）。"""
+        """清空该会话（可选，如用户说「重新开始」）。"""
         with self._lock:
             self._store.pop(conversation_id, None)
             self._session_context.pop(conversation_id, None)
 
     def set_session_value(self, conversation_id: str, key: str, value: Any) -> None:
-        """设置该会话下某上下文键值，供各能力使用（如 last_booking_id、last_ticket_id）。"""
+        """设置该会话下某上下文键值，供各技能使用（如 last_booking_id 供取消意图槽位联想）。"""
         with self._lock:
             if conversation_id not in self._session_context:
                 self._session_context[conversation_id] = {}
@@ -71,7 +71,7 @@ class ConversationStore:
             return (self._session_context.get(conversation_id) or {}).get(key)
 
     def set_last_booking_id(self, conversation_id: str, booking_id: str) -> None:
-        """记录该会话下最近一次成功预定的 booking_id（能力「会议」使用）。"""
+        """记录该会话下最近一次成功预定的 booking_id（会议技能用于取消意图的槽位联想）。"""
         self.set_session_value(conversation_id, "last_booking_id", (booking_id or "").strip())
 
     def get_last_booking_id(self, conversation_id: str) -> Optional[str]:

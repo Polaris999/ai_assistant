@@ -6,10 +6,10 @@
 
 ## 1. 系统概述
 
-- **目标**：作为统一对话助手，通过文本或语音输入完成多种任务；当前内置会议相关能力（查会议室/预定/取消），后续可扩展运维工单等能力。
+- **目标**：作为统一对话助手，通过文本或语音输入完成多种任务；当前内置会议技能（查会议室/预定/取消），后续可扩展运维工单等技能。
 - **输入**：自然语言或语音文件。
 - **输出**：统一 `code/msg/data/request_id`；`data` 内含 `reply`、可选业务结果（如 `booking`）与 `conversation_id`。
-- **能力边界**：每轮由 LLM 选择一个 tool 并填参，执行层按「能力」分发；会话内可用 session 键值（如 `last_booking_id`）做上下文联想；能力可插拔扩展。
+- **技能边界**：每轮由 LLM 选择意图（Intent）+ 填参（槽位 Slots），执行层按**技能（Skills）**分发；会话内可用 session 键值（如 `last_booking_id`）做槽位联想；技能可插拔扩展。
 
 ---
 
@@ -19,7 +19,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  接入层 (api/)          │ 路由、中间件、依赖注入、统一响应与异常   │
 ├─────────────────────────────────────────────────────────────────┤
-│  Agent 层 (agent/)      │ LangGraph 图、状态定义、节点实现        │
+│  Agent 层 (agent/)      │ LangGraph ReAct Agent、技能门面、意图短路与 LLM 流程           │
 ├─────────────────────────────────────────────────────────────────┤
 │ 服务/领域 (services/,   │ 预定存储、提醒调度、RAG、领域模型       │
 │  rag/, models/)         │                                        │
@@ -38,52 +38,42 @@
 | 模块 | 职责 |
 |------|------|
 | config | 环境变量与 .env、pydantic-settings；Prompt 模板加载与缓存 |
-| core | LLM/Embeddings 抽象与 vllm/openai/dify 适配器；向量库工厂；统一异常；可观测回调；会话历史（conversation） |
+| core | LLM 工厂（vllm/openai 使用 LangChain ChatOpenAI；dify 专用适配器）；Embeddings/向量库工厂；统一异常；可观测回调；会话历史（conversation） |
 | models | MeetingIntent、MeetingBooking |
 | rag | 向量库封装、默认会议知识、检索上下文 |
-| services | IMeetingService、MeetingStore、ReminderScheduler、meeting_rules（规则来源） |
-| agent | AgentRunner 协议（protocol.py）、Tool Agent、能力层（capabilities：Protocol + BaseCapability）、tools 聚合；能力依赖由组合根注入 |
+| services | 无进程内会议存储/调度；会议规则（如最多提前天数）在 config/settings（meeting_max_days_ahead），订会/提醒由技能 HTTP 后端承担 |
+| agent | AgentRunner 协议（protocol.py）、**LangGraph create_react_agent**（langgraph_runner.py）、技能层（skills）转 LangChain Tool、意图短路（llm_flow）；技能依赖由组合根注入 |
 | api | 路由（controllers）、response、middleware、agent_bootstrap（组合根）；**应用层** api/services（如 ChatService）做对话用例编排，Controller 仅做参数校验与 HTTP，与 Dify 等「Controller 薄 + Service 编排」一致 |
 
 ---
 
 ## 3. 核心流程
 
-### 3.1 会议预定主流程（默认：Tool Agent）
+### 3.1 会议预定主流程（LangGraph ReAct + Skills）
 
 1. 用户输入文本或上传语音；语音经 STT 转文字。
-2. **Tool Agent**：LLM 根据 system prompt 与用户输入输出 `tool` + `arguments`（意图与参数一步到位）。
-3. **校验**：能力层在 `execute` 内做规则校验（如最多提前 N 天、单次时长上限），不通过则直接返回错误，不调后端。
-4. **执行**：`execute_tool` 分发到对应 capability；订会时调用 IMeetingService.book_meeting（内部用 MeetingStore + ReminderScheduler 或 HTTP 调业务后端）。
+2. **意图短路**：阶段 1（run_pre_llm_stage）处理空输入、问候、有 RAG 的查会议室等，可直接回复则不再调 LLM。
+3. **LangGraph Agent**：进入 create_react_agent；LLM（LangChain ChatOpenAI）按工具 schema 做 Function Calling，工具层由技能转 LangChain StructuredTool，执行时分发到对应 **Skill**（会议由 GenericSkill 调 HTTP 后端）。
+4. **校验**：技能层在 `execute` 内做规则校验（如最多提前 N 天、单次时长上限），不通过则直接返回错误。
 5. 返回 `reply`、`booking`、`error`，由 API 层封装为 code/msg/data。
 
-（当 `USE_TOOL_AGENT=false` 时走 LangGraph 图：rag → parse_intent → create_booking → reply_polish，见 §6.3。）
-
-### 3.2 LangGraph 图结构（USE_TOOL_AGENT=false 时）
-
-```
-  START → [rag] → [parse_intent] ── 条件边 ──→ [create_booking] → [reply_polish] → END
-```
-
-- 状态：`MeetingAgentState`；依赖由组合根注入。
-
-### 3.3 HTTP 请求链路
+### 3.2 HTTP 请求链路
 
 1. 请求 → RequestID → SecurityHeaders → RequestLogging。
 2. 路由 → `get_agent(request)` 从 `app.state.agent` 取 Agent。
 3. **多轮会话**：若请求带 `conversation_id` 则从会话存储取最近 N 轮历史，否则新建会话；`agent.invoke(text, request_id=..., conversation_id=..., history=...)`；执行后将本轮 user/assistant 写入会话存储。
 4. 响应（data 中含 `conversation_id` 供下一轮携带）；异常由 app 全局 handler 统一为 code/msg/data + request_id。
 
-### 3.4 多轮会话与澄清
+### 3.3 多轮会话与澄清
 
 - **会话**：`conversation_id` 由客户端首轮不传（服务端生成并返回）或客户端生成；同一会话内保留最近若干轮 user/assistant 历史（默认 20 条，见 `core/conversation.py`）。
 - **存储**：默认进程内 `ConversationStore`，生产可替换为 Redis 等；仅用于多轮上下文，不落库业务数据。
-- **澄清**：Tool Agent 的 system 提示中约定「若信息不足先用 reply_only 追问」；LLM 看到历史 + 当前输入后可输出追问，下一轮用户补充后再选 `book_meeting`。
+- **澄清**：LangGraph Agent 的工具中包含 reply_only；若信息不足 LLM 可先选该工具追问，下一轮用户补充后再选 `book_meeting`。
 
-### 3.5 知识库 CRUD 与多库
+### 3.4 知识库 CRUD 与多库
 
 - **按库名分集合**：不采用「单集合 + metadata 分类」，而是**每个业务独立 collection**（与 [Langchain-Chatchat 多知识库](https://github.com/chatchat-space/Langchain-Chatchat/blob/master/libs/chatchat-server/chatchat/server/api_server/kb_routes.py) 一致）。会议用 `meeting_knowledge`，运维工单用 `ops_ticket_knowledge`，检索/清空互不影响；新增业务时在 `rag/meeting_rag.py` 的 `ALLOWED_KB_NAMES` 增加名称即可。
-- **启动**：仅会议库有默认知识，由 Agent warmup 调用 `init_default_knowledge()` 写入；运维工单库无默认数据，需通过 API 或后续能力录入。
+- **启动**：仅会议库有默认知识，由 Agent warmup 调用 `init_default_knowledge()` 写入；运维工单库无默认数据，需通过 API 或后续技能录入。
 - **接口**（所有 CRUD 支持 query 参数 `kb`，默认 `meeting`，前缀 `/api/v1`）：
   - `GET /api/v1/knowledge/bases` — 已登记知识库列表（如 meeting、ops_ticket）
   - `GET /api/v1/knowledge?kb=` — 统计指定 kb 的 chunk 数量
@@ -108,12 +98,12 @@
 - Prompt：默认 `config/prompts/`，可通过以下环境变量覆盖：
   - `PROMPT_PARSE_INTENT_PATH`：解析意图模板
   - `PROMPT_REPLY_POLISH_PATH`：回复润色模板
-  - `PROMPT_TOOL_AGENT_SYSTEM_PATH`：Tool Agent 的 system 提示（规则说明）
+  - Prompt 模板：`config/prompts/`，可选工具说明头由 prompt_loader 加载
 
 ### 4.3 可观测
 
-- **当前已有**：请求级 request_id、请求结束日志（method、path、status、duration_ms、request_id）；chat 层（req_id、cid、text_len、elapsed_ms）；Tool Agent（invoke 总耗时、tool 名、解析失败回退时打 INFO）。
-- **可选 LangSmith**：配置 `LANGCHAIN_TRACING_ENABLED`、`LANGCHAIN_API_KEY` 后仅对 LangChain/LangGraph 路径自动上报；Tool Agent 使用自定义 BaseLLM，不会自动进 LangSmith，需手动 trace 或包成 Runnable。
+- **当前已有**：请求级 request_id、请求结束日志；chat 层 req_id、cid、text_len、elapsed_ms；Agent  invoke 总耗时、tool 名等。
+- **可选 LangSmith**：配置 `LANGCHAIN_TRACING_ENABLED`、`LANGCHAIN_API_KEY` 后对 LangChain/LangGraph 路径自动上报。
 
 **可观测最佳实践（分层、优先顺序）**：
 
@@ -126,19 +116,24 @@
 结论：**更符合最佳实践的是「先 1 再 2，再按需 3」**；不推荐跳过 1、2 只上 LangSmith。
 
 **当前实现**：
-- **Layer 1**：每次 chat 请求结束时 Tool Agent 打一条 JSON 日志（`observability {"event":"chat_request","request_id":...,"tool":...,"duration_ms":...,"error":...,"parse_fallback":...}`），便于采集与检索；request_id 贯穿中间件与 chat。
-- **Layer 2**：可选 OpenTelemetry（`pip install -e '.[otel]'` 后配置 `OTEL_EXPORTER_OTLP_ENDPOINT`），启动时 `init_otel()` 初始化；中间件为每个请求建 `http.request` span，Tool Agent 内建 `tool_agent.invoke`、`llm.invoke`、`execute_tool` 父子 span，可接 Jaeger/Datadog 等。
+- **Layer 1**：每次 chat 请求结束时打一条 JSON 日志（observability 等），request_id 贯穿中间件与 chat。
+- **Layer 2**：可选 OpenTelemetry（`pip install -e '.[otel]'` 后配置 `OTEL_EXPORTER_OTLP_ENDPOINT`），启动时 `init_otel()` 初始化；中间件为每个请求建 `http.request` span，LangGraph Agent 内可接 Jaeger/Datadog 等。
 
 ### 4.4 组合根与生命周期
 
-- **组合根**：`create_agent_or_placeholder()`（在 api/agent_bootstrap）根据配置创建 Tool Agent 或 LangGraph Agent；Tool Agent 通过 `get_default_capabilities(meeting_service=...)` 获取能力列表，未传则内部创建 DefaultMeetingService，便于测试注入 Mock。命令行 `ai-assistant --text/--voice` 与 Web 共用该创建逻辑。
+- **组合根**：`create_agent_or_placeholder()`（在 api/agent_bootstrap）创建 LangGraph Agent，使用 SkillManager 从 skill_docs 发现技能（会议等由 executor.url 走 HTTP）。命令行 `ai-assistant --text/--voice` 与 Web 共用该创建逻辑。
 - **启动**：创建 Agent、执行 `run_agent_warmup(agent)`（优先 agent.warmup()，否则 _rag.init_default_knowledge）。
 - **关闭**：从 agent 取 _scheduler，若有则 `shutdown(wait=True)`。
 
-### 4.5 Agent 与能力协议
+### 4.5 Agent 与技能协议（Intent / Slots / Skills）
 
-- **AgentRunner**：定义于 `agent/protocol.py`，对外统一从 `ai_assistant.agent` 导入；`agent_base.py` 仅作兼容 re-export。
-- **Capability**：Protocol 仅要求 `schema_fragment`、`tool_names`、`execute`；可选方法 `warmup`、`get_scheduler` 由 `BaseCapability` 提供默认实现，子类按需重写。
+- **AgentRunner**：定义于 `agent/protocol.py`，对外从 `ai_assistant.agent` 导入。
+- **Skill 文档（Anthropic / LangChain 对齐）**：与 [Anthropic Agent Skills](https://github.com/anthropics/skills)、[LangChain Skills](https://docs.langchain.com/oss/python/langchain/multi-agent/skills) 一致，每个技能为**一个文件夹 + SKILL.md**（prompt-driven specialization）。
+  - 位置：项目根下 `skill_docs/<skill_name>/SKILL.md`。
+  - 格式：YAML frontmatter（`name`、`description`）+ Markdown 正文（When to use / How to use / Guidelines 等）。
+  - 加载：`load_all_skill_docs()` 启动时注入 system prompt；可选 **渐进披露**（progressive disclosure）：将 `load_skill_by_name(skill_name)` 暴露为 agent 的 tool，按需加载技能内容，与 LangChain 的 `load_skill` 模式一致。
+- **Skill 执行层（代码）**：`agent/skills/` 下 Python 类提供 **get_tools_schema()**、**execute()**，对应可调用工具与执行；与 Skill 文档一一对应。
+- **Intent 与 Slots**：每轮 LLM 输出 `tool`（意图）+ `arguments`（槽位填充结果）；未填槽位可从会话联想（如 `last_booking_id`）。
 
 ---
 
@@ -160,78 +155,108 @@
 |------|------|----------|------|------|
 | **规则路由** | 关键词/短句匹配 → 固定分支 | 意图少、表述稳定 | 无额外 LLM、延迟低 | 泛化差 |
 | **LLM 意图分类** | 先调 LLM 输出 intent 再分支 | 意图多、说法多样 | 泛化好 | 多一次 LLM 调用 |
-| **Agent + Tools** | LLM 选「工具」并填参，按需调用 | 多能力、需组合（查+订+改） | 灵活，业内主流 | 依赖 prompt/结构化输出 |
-| **Skills** | 能力模块化，由路由或 LLM 选择 | 团队分工、复用 | 边界清晰 | 与路由/Tools 结合使用 |
+| **Agent + Tools** | LLM 选「工具」并填参（槽位），按需调用 | 多技能、需组合（查+订+改） | 灵活，业内主流 | 依赖 prompt/结构化输出 |
+| **Skills** | 技能模块化，由路由或 LLM 选择 | 团队分工、复用 | 边界清晰 | 与路由/Tools 结合使用 |
 
-### 6.2 推荐流程（意图优先）
+### 6.2 推荐流程（意图优先）与 LLM 交互规范
+
+**与 LLM 交互的完整阶段定义、落点与自检清单见 [LLM 交互流程规范](LLM_INTERACTION_FLOW.md)**。所有 Agent 实现须遵循该规范，避免在业务代码中零散打补丁。
+
+高层流程（意图优先）：
 
 ```
 用户输入 → [意图识别] → [路由]
-   chitchat      → 固定/模板回复
+   chitchat      → 固定/模板回复（不调 LLM，规范中的「阶段 1：意图短路」）
    query_rooms   → 仅 RAG（或业务接口）返回会议室信息
    book_meeting  → 解析参数后调用预定接口
 ```
 
-- **意图识别**：可规则（关键词）或 LLM 输出 intent/结构化结果。
-- **何时上 Tools**：可选动作多、参数由自然语言决定时，用 LLM 选 tool + 填参；**Skills** 为能力封装，可每个 skill 对应一个 tool。
+- **意图识别**：可规则（关键词）或 LLM 输出 intent/结构化结果；**规则可识别的意图（如问候）必须在调用 LLM 前处理完毕**，见规范阶段 1。
+- **何时上 Tools**：可选动作多、参数由自然语言决定时，用 LLM 选 tool（意图）+ 填参（槽位）；**Skills** 为技能封装，可每个 skill 暴露多个 tool。
 
-### 6.3 本项目落地（默认：Agent + Tools）
+### 6.3 本项目落地（LangGraph + Skills）
 
-- **默认**（`USE_TOOL_AGENT=true`）：**Tool Agent**。LLM 一次输出 `tool` + `arguments`，执行层调用 **IMeetingService** 后返回。
-- **业务接口**：`IMeetingService`（`services/meeting_service.py`）提供 `query_meeting_rooms()`、`book_meeting(...)`；默认实现用 RAG + MeetingStore + ReminderScheduler，生产可替换为 HTTP 调业务后端。
-- **Tools**：`reply_only`（闲聊）、`query_meeting_rooms`、`book_meeting`（见 `agent/tools.py`）；Agent 见 `agent/tool_agent.py`。
-- **切换**：`USE_TOOL_AGENT=false` 时使用原 LangGraph 图（规则意图 `agent/intent.py` + 解析会议 JSON）。
+- **当前**：**LangGraph create_react_agent**（ReAct）。工具由技能经 `langgraph_tools.skills_to_langchain_tools` 转为 LangChain StructuredTool，执行由 SkillManager 分发到各技能（会议为 GenericSkill 调 HTTP 后端）。
+- **Tools**：`reply_only`、`query_meeting_rooms`、`book_meeting` 等（见 `agent/tools.py` 常量与 `skill_docs/meeting/tools.json`）；Agent 见 `agent/langgraph_runner.py`。
+
+### 6.3.1 技能发现与注册（业内统一做法）
+
+与 Anthropic / LangChain / Dify 对齐：**文档驱动发现 + 执行层注册表**。
+
+| 层级 | 职责 | 本项目落点 |
+|------|------|------------|
+| **来源** | 决定「有哪些技能」 | `skill_docs/*/SKILL.md`：每技能一目录，有 SKILL.md 即被发现；`config/skill_loader.get_skill_ids_from_docs()` |
+| **配置** | 可选过滤启用列表 | `ENABLED_SKILLS`（逗号分隔 skill_id）；空则使用发现结果全部 |
+| **执行** | skill_id → 实例 | 注册表 `register(skill_id, factory)`；或 **仅 SKILL.md**：frontmatter 含 `executor.url` 时由 `GenericSkill` HTTP 调用 |
+
+| 组件 | 说明 |
+|------|------|
+| **SkillLoader** | `agent/skills/loader.py`：发现、加载、format_for_prompt，与 [skillkit](https://github.com/maxvaega/skillkit) 的 discovery/load 对齐 |
+| **SkillManager** | `agent/skills/manager.py`：发现 + 文档 + 执行统一门面；Agent 仅依赖 SkillManager |
+
+**两种新增技能方式**：
+
+1. **仅 SKILL.md + HTTP**：在 `skill_docs/<id>/` 下增加 SKILL.md、可选 tools.json，frontmatter 中声明 `executor.url`（可 `${ENV_VAR}`）。执行由 `GenericSkill` 将 tool + arguments POST 到该 URL。
+2. **SKILL.md + Python**：① 同上增加 SKILL.md；② 实现 Skill 并 `register("<id>", factory)`。适合需进程内校验或本地资源的技能。
+
+- **单测注入**：`LangGraphRunner(manager=mock_manager, model=fake_chat_model)` 传入 mock 技能与假模型。
+- **会议仅 HTTP**：会议由 `skill_docs/meeting/` + `MEETING_SKILL_URL` 提供；未配置则会议技能不加载。tool 定义在 `tools.json`，后端契约见 [SKILL_HTTP_BACKEND.md](SKILL_HTTP_BACKEND.md)。
 
 ### 6.4 标准处理流程（意图 → 参数 → 校验 → 执行 → 响应）
 
+**权威定义与实现落点见 [LLM 交互流程规范](LLM_INTERACTION_FLOW.md)**；本节与之一致，仅保留摘要。
+
 业内通用：NLU/意图与实体 → 槽位填充 → **校验（代码内，通过后才调后端）** → 执行 → 响应。参考：Rasa [Dialogue Management](https://rasa.com/docs/learn/concepts/dialogue-management)、[Slot Validation](https://rasa.com/docs/rasa/next/slot-validation-actions/)；Microsoft [Add NLU to your bot](https://learn.microsoft.com/en-us/azure/bot-service/bot-builder-howto-v4-luis)。
 
-**本项目等价流水线**：
+**本项目等价流水线**（阶段 1 意图短路为规范要求，非临时补丁）：
 
 ```
 用户输入
     ↓
-① 意图识别（选 tool）     ← 对应 NLU / Intent
+① 意图短路（Pre-LLM）     ← 规则可识别则直接回复，不调 LLM
+    ↓ 未短路则继续
+② 意图识别（选 tool）     ← 对应 NLU / Intent（LLM 或回退规则）
     ↓
-② 参数抽取（arguments）   ← 对应 Slot Filling / Entity → slots
+③ 参数抽取（arguments）   ← 对应 Slot Filling / Entity → slots
     ↓
-③ 参数/规则校验           ← 对应 Slot Validation（代码内，不通过不执行）
+④ 参数/规则校验           ← 对应 Slot Validation（代码内，不通过不执行）
     ↓
-④ 分支执行（按 tool）     ← 对应 Action / Backend Call
+⑤ 分支执行（按 tool）     ← 对应 Action / Backend Call
     ↓
-⑤ 响应                    ← 对应 Response
+⑥ 响应                    ← 对应 Response
 ```
 
 | 环节 | 职责 | 本项目当前落点 | 建议 |
 |------|------|----------------|------|
-| **① 意图识别** | 判断用户要「查/订/取消/闲聊」 | LLM 一次输出 `tool` + `arguments`（意图与参数同步） | Prompt 中明确：说了相对时间就推断 start_time 并走 book_meeting，避免误走 reply_only |
-| **② 参数抽取** | 从自然语言中解析出 start_time、title、duration 等 | 同上，LLM 填 arguments | 相对时间（如「8天后」）须在 prompt 中要求推断为 ISO 时间 |
-| **③ 参数/规则校验** | 格式 + **业务规则**（如最多提前 7 天、单次不超过 4 小时） | 能力层 `execute()` 内：解析后先做规则校验，再调 service | **规则必须在代码中校验**，与业内「Validation 在 Action 前」一致；新增规则在 capability execute 前增加校验并返回明确 error |
-| **④ 分支执行** | 按 tool 调用对应能力或后端 | `execute_tool()` → capability.execute() → IMeetingService | 保持「校验通过才调后端」 |
-| **⑤ 响应** | 统一结构、错误码与文案 | API 层 code/msg/data；能力层 reply/booking/error | 校验失败时 error 码固定（如 EXCEED_MAX_DAYS_AHEAD） |
+| **① 意图短路（Pre-LLM）** | 规则可识别的意图（问候/闲聊等）直接回复，不调 LLM | `agent/llm_flow.run_pre_llm_stage` + LangGraph Runner 入口，CHITCHAT 则 `reply_for_chitchat` 后 return | 新增可短路意图时在 intent/llm_flow 统一扩展，见 [LLM 交互流程规范](LLM_INTERACTION_FLOW.md) 阶段 1 |
+| **② 意图识别（LLM）** | 判断用户要「查/订/取消」等 | LLM 一次输出 `tool` + `arguments`（意图与参数同步） | Prompt 中明确：说了相对时间就推断 start_time 并走 book_meeting，避免误走 reply_only |
+| **③ 参数抽取** | 从自然语言中解析出 start_time、title、duration 等 | 同上，LLM 填 arguments | 相对时间（如「8天后」）须在 prompt 中要求推断为 ISO 时间 |
+| **④ 参数/规则校验** | 格式 + **业务规则**（如最多提前 7 天、单次不超过 4 小时） | 技能层 `execute()` 内：解析后先做规则校验，再调 service | **规则必须在代码中校验**，与业内「Validation 在 Action 前」一致；新增规则在 skill execute 前增加校验并返回明确 error |
+| **⑤ 分支执行** | 按 tool 调用对应技能或后端 | `execute_tool()` → skill.execute()（会议为 HTTP） | 保持「校验通过才调后端」 |
+| **⑥ 响应** | 统一结构、错误码与文案 | API 层 code/msg/data；技能层 reply/booking/error | 校验失败时 error 码固定（如 EXCEED_MAX_DAYS_AHEAD） |
 
-**原则**：校验在代码、先于执行；硬性规则在 capability execute 内、调 service 前校验；新能力按同一流水线实现。
+**原则**：校验在代码、先于执行；硬性规则在 skill execute 内、调 service 前校验；新技能按同一流水线实现。
 
 ### 6.5 业内最佳实践自检清单
 
 | 检查项 | 业内建议 | 本项目状态 |
 |--------|----------|------------|
 | **流水线** | NLU → Slot Filling → Validation → Action → Response | ✅ LLM 出 tool+arguments，execute 内先校验再调 service |
-| **规则在代码** | 业务规则在代码中校验，不依赖 LLM/RAG | ✅ capability 内校验，规则来自 rules_provider 或 settings |
+| **规则在代码** | 业务规则在代码中校验，不依赖 LLM/RAG | ✅ skill 内校验，规则来自 rules_provider 或 settings |
 | **校验先于执行** | 通过后才调后端 | ✅ 不通过即 return，不调 `_service.book_meeting` |
 | **固定错误码** | 校验失败返回稳定错误码 | ✅ EXCEED_MAX_DAYS_AHEAD、EXCEED_MAX_DURATION、PARSE_ERROR、MISSING_BOOKING_ID |
 | **API 响应统一** | code/msg/data/request_id；业务与系统错误区分 | ✅ response 统一 body；chat 层 error 入 data，503 区分 |
 | **请求可观测** | request_id、请求结束日志 | ✅ middleware 注入 request_id、打日志 |
 | **解析失败回退** | 关键词回退 | ✅ `_looks_like_query_rooms` → query_meeting_rooms，否则 reply_only |
-| **规则覆盖完整** | 与对外宣称一致 | ✅ 时长、提前天数在 capability 内校验，数值来自配置或后台 |
+| **规则覆盖完整** | 与对外宣称一致 | ✅ 时长、提前天数在 skill 内校验，数值来自配置或后台 |
 | **规则可配置** | 改配置或由后台提供 | ✅ 本地 settings；或 MEETING_RULES_API_URL（§6.6） |
-| **规则校验单测** | 关键规则有单测 | ✅ `test_tool_agent_and_capabilities` 中 EXCEED_MAX_DAYS_AHEAD、EXCEED_MAX_DURATION |
+| **规则校验单测** | 关键规则有单测 | ✅ `test_tool_agent_and_skills` 中 LangGraph/技能与 EXCEED_MAX_DAYS_AHEAD、EXCEED_MAX_DURATION |
 
-新增能力时按 §6.4 与上表自检。
+新增技能时按 §6.4 与上表自检。
 
 ### 6.6 规则来源：本地 vs 业务后台
 
-**IMeetingRulesProvider**（`services/meeting_rules.py`）：本地 `SettingsMeetingRulesProvider`；后台 `BackendMeetingRulesProvider`（内存缓存）。规则相关配置与系统配置分离：`config/meeting_rules_config.py`（环境变量 MEETING_*），系统配置仍在 `config/settings.py`。
+**IMeetingRulesProvider**（`services/meeting_rules.py`）：本地 `SettingsMeetingRulesProvider`；后台 `BackendMeetingRulesProvider`（内存缓存）。会议相关配置（如 `meeting_max_days_ahead`）现统一在 `config/settings.py`。
 
 ---
 
@@ -242,7 +267,7 @@
 | app.py | FastAPI 入口，`uvicorn app:app` |
 | ai_assistant.main | 命令行 `ai-assistant --text/--voice` |
 
-- **扩展**：新 LLM/Embedding 在 core 增加适配器并在 factory 分支；新 Agent 实现 AgentRunner（见 agent/protocol.py）并注册 agent_factory；新能力实现 Capability（继承 BaseCapability 可选），在 `get_default_capabilities` 中注册；查/订逻辑实现 IMeetingService 并通过 `get_default_capabilities(meeting_service=...)` 注入。
+- **扩展**：新 LLM/Embedding 在 core 增加适配器并在 factory 分支；新 Agent 实现 AgentRunner（见 agent/protocol.py）并注册 agent_factory；**新技能**：在 `skill_docs/<id>/` 加 SKILL.md，配置 executor.url 则走 GenericSkill（HTTP），或实现 Skill 并 `register(id, factory)`（见 §6.3.1）。
 - **约束**：默认预定与提醒为进程内，重启丢失；多实例需替换为持久化与分布式调度或对接业务接口。
 
 ---

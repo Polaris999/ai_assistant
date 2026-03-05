@@ -11,7 +11,31 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Optional, Protocol, TypedDict, runtime_checkable
 
+from ai_assistant.core.exceptions import AppException
+
 logger = logging.getLogger(__name__)
+
+
+def create_placeholder_runner(reason: str) -> Any:
+    """创建占位 Runner（invoke 抛 AppException），用于 Agent 创建失败时。"""
+    class _Placeholder:
+        _scheduler = None
+
+        def invoke(
+            self, user_input: str, user_id: str = "default", request_id: Optional[str] = None, **kwargs: Any
+        ) -> dict[str, Any]:
+            raise AppException(
+                "success",
+                code="RUNTIME_ERROR",
+                details={
+                    "reply": reason,
+                    "booking": None,
+                    "error": "RUNTIME_ERROR",
+                    "conversation_id": kwargs.get("conversation_id") or "",
+                },
+            )
+
+    return _Placeholder()
 
 
 class InvokeResult(TypedDict):
@@ -55,15 +79,12 @@ def is_agent_ready(agent: Optional[Any]) -> bool:
 
 def run_agent_warmup(agent: Any, timeout_seconds: int = 45) -> tuple[bool, Optional[str]]:
     """
-    执行 Agent 启动预热：若存在可调用的 warmup() 则调用；否则若存在 _rag.init_default_knowledge 则调用。
-    在子线程中执行并带超时。返回 (成功与否, 错误信息)。
+    执行 Agent 启动预热：若存在可调用的 warmup() 则调用，在子线程中执行并带超时。
+    返回 (成功与否, 错误信息)。当前由 LangGraph Runner 提供 warmup（技能预热）。
     """
     if agent is None:
         return True, None
     warmup_fn = getattr(agent, "warmup", None)
-    if not callable(warmup_fn):
-        rag = getattr(agent, "_rag", None)
-        warmup_fn = getattr(rag, "init_default_knowledge", None) if rag else None
     if not callable(warmup_fn):
         return True, None
     try:

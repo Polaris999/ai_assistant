@@ -1,0 +1,51 @@
+[
+  {
+    "name": "reply_only",
+    "description": "用户只是打招呼、问你是谁、闲聊，或无法解析为预定/查会议室/取消时使用。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reply": {"type": "string", "description": "给用户的回复文案"}
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "query_meeting_rooms",
+    "description": "用户想了解有哪些会议室、预约规则、可用会议室等信息时使用。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "用户原话或关键词，可选"}
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "book_meeting",
+    "description": "用户明确要预定会议时使用。必须能从用户输入中解析出会议主题、开始时间、时长。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string", "description": "会议主题"},
+        "start_time": {"type": "string", "description": "开始时间，ISO 8601 格式如 2026-03-05T14:00:00"},
+        "duration_minutes": {"type": "integer", "description": "时长（分钟）"},
+        "room": {"type": "string", "description": "会议室名，可选"},
+        "participants": {"type": "array", "items": {"type": "string"}, "description": "参与者列表"},
+        "remind_minutes_before": {"type": "integer", "description": "提前多少分钟提醒"}
+      },
+      "required": ["title", "start_time", "duration_minutes"]
+    }
+  },
+  {
+    "name": "cancel_meeting",
+    "description": "用户表示要「取消」会议时使用。包括：取消刚定的、取消刚才的、取消上一笔、不订了、取消预约等。不填 booking_id 表示取消本会话上一笔预定（槽位联想）。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "booking_id": {"type": "string", "description": "预定 id，可选；不填则取本会话 last_booking_id"}
+      },
+      "required": []
+    }
+  }
+]

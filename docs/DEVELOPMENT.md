@@ -76,22 +76,20 @@ pytest tests/ -v --tb=short
 
 | 模块 | 说明 |
 |------|------|
-| `agent.tool_agent` | **默认** Tool Agent：LLM 选 tool（query_meeting_rooms/book_meeting/reply_only），执行走 IMeetingService |
-| `agent.tools` | Tool 定义与执行，调用 IMeetingService |
-| `agent.intent` | 规则意图（LangGraph 模式用）；意图与路由设计见 [技术架构 §6](ARCHITECTURE.md#6-意图理解与路由设计选型与落地) |
-| `ai_assistant.agent.meeting_agent` | LangGraph 图（USE_TOOL_AGENT=false 时使用） |
-| `services.meeting_service` | **IMeetingService** 协议与默认实现；生产可替换为 HTTP 调业务后端 |
-| `models.meeting` | MeetingIntent、MeetingBooking |
-| `rag.meeting_rag` | 会议知识 RAG、默认知识 |
-| `services` | MeetingStore、ReminderScheduler |
+| `agent.langgraph_runner` | **唯一 Agent**：LangGraph create_react_agent + 技能转 LangChain Tool；执行由 SkillManager 分发（会议为 HTTP 等） |
+| `agent.tools` | 工具常量、get_tools_schema_for_prompt（可选）、execute_tool 分发到技能 |
+| `agent.intent` | 规则意图（阶段 1 短路与 LangGraph 用）；见 [技术架构 §6](ARCHITECTURE.md#6-意图理解与路由设计选型与落地) |
+| `rag.meeting_rag` | 会议知识 RAG、默认知识、知识库 API |
 | `api.routers.chat` | POST /api/v1/chat、/api/v1/chat/voice（统一对话入口） |
-| `agent.capabilities` | 能力层：meeting（会议预定）、ops 占位（运维工单）；各能力提供 schema_fragment、tool_names、execute |
+| `agent.skills` | 技能发现与执行：SkillManager、GenericSkill（HTTP）、注册表 |
+| `skill_docs/` | **Anthropic 风格**技能文档：每技能一文件夹 + SKILL.md（name、description、When/How to use），见 [anthropics/skills](https://github.com/anthropics/skills) |
 
-### 4.1 能力扩展（如运维工单）
+### 4.1 技能扩展（如运维工单）
 
-- 在 `agent/capabilities/` 下新增模块（如 `ops.py`），实现与 `MeetingCapability` 同构的接口：`schema_fragment()`、`tool_names()`、`execute(tool_name, arguments, context)`；可选 `warmup()`、`get_scheduler()`。
-- 会话上下文：`context["get_session_value"](key)` 可读本会话键值；成功创建工单后由 API 层调用 `store.set_session_value(cid, "last_ticket_id", id)`，供「查刚建的工单」等联想。
-- 在 `capabilities/__init__.py` 的 `get_default_capabilities()` 中注册新能力实例即可，Tool Agent 会自动合并工具说明并分发执行。
+**Anthropic 风格技能文档**：在 `skill_docs/` 下新建子目录（如 `ops_ticket/`），放入 `SKILL.md`（YAML 头 name + description，正文 When to use / How to use / Guidelines）。`config/skill_loader.py` 会自动加载并注入 system prompt。
+
+- 新技能：在 `skill_docs/<id>/` 下加 SKILL.md，配置 `executor.url` 则走 GenericSkill（HTTP）；或实现 Skill 协议并在 `agent/skills/registry` 中 `register(id, factory)`。
+- 会话与槽位联想：`context["get_session_value"](key)` 可读本会话键值；成功创建工单后由 API 层写入 `store.set_session_value(cid, "last_ticket_id", id)`，供槽位联想。
 
 更细的协议说明与框架评论见 [技术架构](ARCHITECTURE.md)。
 
