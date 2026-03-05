@@ -81,6 +81,8 @@ def skills_to_langchain_tools(
 
     def _invoke(tool_name: str, **kwargs: Any) -> str:
         ctx = get_langgraph_context() or {}
+        req_id = (ctx.get("request_id") or "").strip() or "-"
+        logger.info("tool_invoke request_id=%s tool=%s args_keys=%s", req_id, tool_name, list(kwargs.keys()))
         if execute_tool_fn is not None:
             result = execute_tool_fn(tool_name, kwargs, ctx)
         else:

@@ -16,7 +16,7 @@ APP_EXCEPTION_MAP = {
     "VALIDATION_ERROR": (CODE_VALIDATION_ERROR, 422),
     "NOT_FOUND": (CODE_NOT_FOUND, 404),
     "CONFIG_ERROR": (CODE_SERVICE_UNAVAILABLE, 503),
-    "RUNTIME_ERROR": (CODE_SERVICE_UNAVAILABLE, 503),
+    "RUNTIME_ERROR": (CODE_INTERNAL_ERROR, 500),
     "LLM_ERROR": (CODE_INTERNAL_ERROR, 500),
     "BUSINESS_ERROR": (CODE_BUSINESS_ERROR, 200),
     "SERVICE_UNAVAILABLE": (CODE_SERVICE_UNAVAILABLE, 503),
@@ -29,8 +29,10 @@ def body(
     data: Any = None,
     request_id: str = "",
 ) -> dict:
-    """构造统一响应体。"""
-    out = {"code": code, "msg": msg, "data": data}
+    """构造统一响应体。成功（code=0）时含 data；出错时不返回 data。"""
+    out: dict[str, Any] = {"code": code, "msg": msg}
+    if code == CODE_SUCCESS:
+        out["data"] = data
     if request_id:
         out["request_id"] = request_id
     return out

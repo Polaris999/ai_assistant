@@ -4,6 +4,7 @@ from ai_assistant.rag.meeting_rag import (
     KB_OPS_TICKET,
     MeetingRAG,
     collection_name_for,
+    get_default_meeting_rag,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "KB_OPS_TICKET",
     "MeetingRAG",
     "collection_name_for",
+    "get_default_meeting_rag",
 ]

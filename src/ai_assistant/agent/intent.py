@@ -56,6 +56,22 @@ def detect_intent(user_input: str) -> UserIntent:
     if len(s) <= 20 and s.lower() in {p.lower() for p in _CHITCHAT_PHRASES}:
         return UserIntent.CHITCHAT
 
+    # 短句以「你好/您好」或 hi/hello 开头（如「你好啊」「hi，你好啊」）→ 闲聊
+    if len(s) <= 25:
+        lower = s.lower()
+        if s.startswith("你好") or s.startswith("您好"):
+            return UserIntent.CHITCHAT
+        if lower.startswith("hi") or lower.startswith("hello"):
+            return UserIntent.CHITCHAT
+        # 业内常见：按逗号/空格取首段，首段为问候即视为闲聊（如 "hi，你好啊" → 首段 "hi"）
+        first_segment = s.split("，")[0].split(",")[0].strip()
+        if first_segment:
+            fl = first_segment.lower()
+            if fl in {p.lower() for p in _CHITCHAT_PHRASES}:
+                return UserIntent.CHITCHAT
+            if first_segment.startswith("你好") or first_segment.startswith("您好"):
+                return UserIntent.CHITCHAT
+
     # 短句内包含身份/介绍类（如「你好，你是谁」）→ 闲聊，避免误解析为预定
     if len(s) <= 50 and any(k in s for k in _IDENTITY_KEYWORDS):
         return UserIntent.CHITCHAT

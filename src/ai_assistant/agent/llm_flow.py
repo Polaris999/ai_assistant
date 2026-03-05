@@ -59,4 +59,16 @@ def run_pre_llm_stage(
             "query_rooms",
         )
 
+    # 极短且无时间信息的订会意图（如「订个会」「帮我订」）→ 直接追问，避免进 ReAct 多轮 LLM
+    if intent == UserIntent.BOOK_MEETING and len(s) <= 8:
+        _time_keywords = ("时间", "点", "明天", "后天", "周", "下周", "日", "月", "号", ":", "上午", "下午", "早上", "晚上")
+        if not any(k in s for k in _time_keywords):
+            try:
+                from ai_assistant.config import settings
+                max_days = getattr(settings, "meeting_max_days_ahead", 7) or 7
+            except Exception:
+                max_days = 7
+            reply = f"请说明会议主题、开始时间和时长；预约规则为最多提前 {max_days} 天内预约。"
+            return ({"reply": reply, "booking": None, "error": None}, "vague_book")
+
     return (None, None)

@@ -25,7 +25,7 @@ def create_placeholder_runner(reason: str) -> Any:
             self, user_input: str, user_id: str = "default", request_id: Optional[str] = None, **kwargs: Any
         ) -> dict[str, Any]:
             raise AppException(
-                "success",
+                "服务暂不可用",
                 code="RUNTIME_ERROR",
                 details={
                     "reply": reason,

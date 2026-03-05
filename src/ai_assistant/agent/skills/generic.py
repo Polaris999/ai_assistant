@@ -6,7 +6,7 @@ GenericSkill：仅凭 SKILL.md 中 executor.url 执行的「无代码」技能�
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from ai_assistant.agent.skills.base import BaseSkill, ToolSchema
 
@@ -92,25 +92,40 @@ class GenericSkill(BaseSkill):
                 timeout = getattr(settings, "skill_http_timeout_seconds", 30) or 30
             except Exception:
                 timeout = 30
-        try:
-            import requests
-            payload = {
-                "tool": tool_name,
-                "arguments": arguments or {},
-                "context": self._serialize_context(context),
-            }
-            resp = requests.post(self._url, json=payload, timeout=timeout)
-            resp.raise_for_status()
-            data = resp.json() if resp.content else {}
-            return {
-                "reply": data.get("reply", resp.text or "已执行"),
-                "booking": data.get("booking"),
-                "error": data.get("error"),
-            }
-        except Exception as e:
-            logger.warning("GenericSkill HTTP 执行失败 %s: %s", self._url, e)
-            return {
-                "reply": f"技能执行失败：{e!s}",
-                "booking": None,
-                "error": "RUNTIME_ERROR",
-            }
+        payload = {
+            "tool": tool_name,
+            "arguments": arguments or {},
+            "context": self._serialize_context(context),
+        }
+        last_error: Optional[Exception] = None
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                import requests
+                resp = requests.post(self._url, json=payload, timeout=timeout)
+                resp.raise_for_status()
+                data = resp.json() if resp.content else {}
+                return {
+                    "reply": data.get("reply", resp.text or "已执行"),
+                    "booking": data.get("booking"),
+                    "error": data.get("error"),
+                }
+            except requests.exceptions.Timeout as e:
+                last_error = e
+                if attempt < max_attempts - 1:
+                    logger.debug("GenericSkill HTTP 超时，重试 %s/%s: %s", attempt + 1, max_attempts, self._url)
+                    continue
+            except requests.exceptions.ConnectionError as e:
+                last_error = e
+                if attempt < max_attempts - 1:
+                    logger.debug("GenericSkill HTTP 连接失败，重试 %s/%s: %s", attempt + 1, max_attempts, self._url)
+                    continue
+            except Exception as e:
+                last_error = e
+                break
+        logger.warning("GenericSkill HTTP 执行失败 %s: %s", self._url, last_error)
+        return {
+            "reply": f"技能执行失败：{last_error!s}" if last_error else "技能执行失败",
+            "booking": None,
+            "error": "RUNTIME_ERROR",
+        }

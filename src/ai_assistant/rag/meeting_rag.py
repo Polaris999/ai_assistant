@@ -32,6 +32,17 @@ def collection_name_for(kb_name: str) -> str:
     return f"{kb_name.strip().lower()}_knowledge"
 
 
+_default_meeting_rag: Optional["MeetingRAG"] = None
+
+
+def get_default_meeting_rag() -> "MeetingRAG":
+    """返回进程内复用的默认会议 RAG 实例（meeting 知识库），供意图短路等使用。"""
+    global _default_meeting_rag
+    if _default_meeting_rag is None:
+        _default_meeting_rag = MeetingRAG(collection_name=collection_name_for(KB_MEETING))
+    return _default_meeting_rag
+
+
 # 首次初始化时写入向量库的默认会议知识
 DEFAULT_MEETING_KNOWLEDGE = [
     "会议室A：容纳10人，支持投影，工作日上午9点到下午6点可预约。",

@@ -13,8 +13,12 @@ from ai_assistant.agent.skills.generic import GenericSkill
 from ai_assistant.agent.skills.loader import SkillLoader
 from ai_assistant.agent.skills.registry import create, registered_ids
 from ai_assistant.agent.skills import get_enabled_skill_ids
-from ai_assistant.agent.tools import TOOL_LOAD_SKILL, execute_tool as _execute_tool
-from ai_assistant.agent.tools import get_tools_schema_for_prompt as _get_tools_schema_for_prompt
+from ai_assistant.agent.tools import (
+    TOOL_LOAD_SKILL,
+    TOOL_REPLY_ONLY,
+    execute_tool as _execute_tool,
+    get_tools_schema_for_prompt as _get_tools_schema_for_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,5 +103,11 @@ class ToolSkillExecutor:
         if tool_name == TOOL_LOAD_SKILL and self.use_skill_catalog_only():
             skill_name = (arguments.get("skill_name") or arguments.get("skill_id") or "").strip()
             return self.execute_load_skill(skill_name)
+        # reply_only 仅做文案回复，不请求任何技能后端，避免误走 GenericSkill HTTP 导致 404
+        if tool_name == TOOL_REPLY_ONLY:
+            reply = (arguments.get("reply") or arguments.get("kw") or "").strip()
+            if not reply:
+                reply = "需要帮您预定会议吗？请直接说会议时间、主题和时长。"
+            return {"reply": reply, "booking": None, "error": None}
         skills = self.get_skills()
         return _execute_tool(tool_name, arguments or {}, skills, context)

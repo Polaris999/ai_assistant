@@ -7,53 +7,33 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
+from ai_assistant.agent.intent import UserIntent, detect_intent
 from ai_assistant.agent.langgraph_tools import reset_langgraph_context, set_langgraph_context, skills_to_langchain_tools
 from ai_assistant.agent.llm_flow import run_pre_llm_stage
 from ai_assistant.agent.skills.manager import SkillManager
 from ai_assistant.core.conversation import get_conversation_store
 from ai_assistant.core.exceptions import AppException, ConfigError, LLMError
+from ai_assistant.core.llm.factory import get_chat_model_for_langgraph
 from ai_assistant.core.serialization import to_json_serializable
 
 logger = logging.getLogger(__name__)
 
 
-def _get_langchain_chat_model() -> Any:
-    """根据配置返回 LangChain ChatModel（OpenAI 或 vLLM 兼容端点）。"""
-    from ai_assistant.config import settings
-    llm_type = (getattr(settings, "llm_type", None) or "vllm").strip().lower()
-    if llm_type == "openai":
-        from langchain_openai import ChatOpenAI
-        api_key = getattr(settings, "openai_api_key", None) or ""
-        if not api_key:
-            raise ConfigError("LLM_TYPE=openai 时需配置 OPENAI_API_KEY")
-        base_url = (getattr(settings, "openai_base_url", None) or "").strip() or None
-        model = getattr(settings, "openai_chat_model", "gpt-4o-mini")
-        timeout = int(getattr(settings, "llm_request_timeout_seconds", 0) or 120)
-        return ChatOpenAI(
-            model=model,
-            api_key=api_key,
-            base_url=base_url,
-            temperature=0,
-            timeout=timeout,
-        )
-    if llm_type == "vllm":
-        from langchain_openai import ChatOpenAI
-        base_url = (getattr(settings, "vllm_base_url", None) or "").strip()
-        if not base_url:
-            raise ConfigError("LLM_TYPE=vllm 时需配置 VLLM_BASE_URL")
-        model = (getattr(settings, "vllm_chat_model", None) or "").strip() or "default"
-        api_key = (getattr(settings, "vllm_api_key", None) or "").strip() or "no-key"
-        timeout = int(getattr(settings, "llm_request_timeout_seconds", 0) or 120)
-        return ChatOpenAI(
-            model=model,
-            base_url=base_url.rstrip("/"),
-            api_key=cast(Any, api_key if api_key != "no-key" else None),
-            temperature=0,
-            timeout=timeout,
-        )
-    raise ConfigError(f"LangGraph 当前仅支持 llm_type=openai 或 vllm，当前: {llm_type}")
+def _truncate_history_by_chars(
+    history: list[dict[str, str]],
+    max_chars: int,
+) -> list[dict[str, str]]:
+    """当 max_chars>0 时从最旧消息起丢弃直到总字符数不超过 max_chars，保证保留最近消息。"""
+    if not history or max_chars <= 0:
+        return history
+    total = sum(len((m.get("content") or "")) for m in history)
+    out = list(history)
+    while total > max_chars and len(out) > 1:
+        total -= len((out[0].get("content") or ""))
+        out.pop(0)
+    return out
 
 
 class LangGraphRunner:
@@ -68,7 +48,7 @@ class LangGraphRunner:
         model: Any = None,
     ) -> None:
         self._manager = manager or SkillManager()
-        self._model = model if model is not None else _get_langchain_chat_model()
+        self._model = model if model is not None else get_chat_model_for_langgraph()
         skills = self._manager.get_skills()
         self._tools = skills_to_langchain_tools(
             skills,
@@ -101,8 +81,17 @@ class LangGraphRunner:
     ) -> dict[str, Any]:
         user_input = (user_input or "").strip()
 
-        # 阶段 1：与自研一致，意图短路
-        pre_result, _ = run_pre_llm_stage(user_input, rag_context=None)
+        # 阶段 1：意图短路；QUERY_ROOMS 时先拉 RAG 上下文再短路，避免多一次 LLM
+        rag_context: Optional[str] = None
+        if detect_intent(user_input) == UserIntent.QUERY_ROOMS:
+            try:
+                from ai_assistant.rag.meeting_rag import get_default_meeting_rag
+                rag = get_default_meeting_rag()
+                rag_context = rag.retrieve_context(user_input, k=4)
+            except Exception as e:
+                logger.debug("QUERY_ROOMS RAG 检索失败，将走 LLM: %s", e)
+                rag_context = None
+        pre_result, _ = run_pre_llm_stage(user_input, rag_context=rag_context)
         if pre_result is not None:
             return pre_result
 
@@ -119,12 +108,15 @@ class LangGraphRunner:
             "get_session_value": get_session_value,
             "_skill_http_timeout": skill_timeout,
             "_last_tool_result": None,
+            "request_id": request_id or "",
         }
         token = set_langgraph_context(context)
         try:
             from langchain_core.messages import AIMessage, HumanMessage
             messages = []
+            max_chars = int(getattr(settings, "conversation_history_max_chars", 0) or 0)
             if history:
+                history = _truncate_history_by_chars(history, max_chars)
                 for m in history:
                     role = (m.get("role") or "").strip() or "user"
                     content = (m.get("content") or "").strip()
@@ -168,16 +160,21 @@ class LangGraphRunner:
             last = (result.get("messages") or [])[-1] if result else None
             content = getattr(last, "content", None) or (last if isinstance(last, str) else "") or ""
             reply = content.strip() if content else "处理完成。"
+            # 模型有时输出英文兜底句，统一替换为中文
+            if reply and ("need more steps" in reply.lower() or "sorry" in reply.lower() and "process" in reply.lower()):
+                reply = "请补充会议主题、开始时间和时长，我来帮您预定。"
             last_tool = context.get("_last_tool_result")
             if last_tool and isinstance(last_tool, dict):
                 if last_tool.get("error"):
                     err_code = str(last_tool.get("error") or "")
                     code = err_code if err_code in ("RUNTIME_ERROR", "CONFIG_ERROR") else "BUSINESS_ERROR"
+                    err_reply = last_tool.get("reply", reply) or "技能执行失败"
+                    # msg 用简短文案，详情仅放在 data.reply，避免重复
                     raise AppException(
-                        "success",
+                        "技能执行失败",
                         code=code,
                         details={
-                            "reply": last_tool.get("reply", reply),
+                            "reply": err_reply,
                             "booking": to_json_serializable(last_tool.get("booking")),
                             "error": last_tool.get("error"),
                             "conversation_id": cid,

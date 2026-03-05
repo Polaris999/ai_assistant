@@ -40,3 +40,7 @@ class LangChainChatModelAdapter(BaseLLM):
     @property
     def name(self) -> str:
         return getattr(self._chat, "model_name", None) or getattr(self._chat, "model", None) or "LangChainChat"
+
+    def get_native_chat_model(self) -> Any:
+        """返回底层 LangChain ChatModel，供 LangGraph create_react_agent 等直接使用。"""
+        return self._chat

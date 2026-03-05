@@ -1,6 +1,6 @@
 # core/llm/factory.py
 """LLM 工厂：统一使用 LangChain ChatOpenAI（vLLM/OpenAI 兼容），Dify 保留专用适配器。"""
-from typing import Optional
+from typing import Any, Optional
 
 from ai_assistant.config import settings
 from ai_assistant.core.exceptions import ConfigError
@@ -65,3 +65,17 @@ def get_llm(llm_type: Optional[str] = None) -> BaseLLM:
             app_type=getattr(settings, "dify_chat_app_type", "chat-messages"),
         )
     raise ConfigError(f"不支持的 llm_type: {t}，可选: openai, vllm, dify")
+
+
+def get_chat_model_for_langgraph(llm_type: Optional[str] = None) -> Any:
+    """
+    返回可供 LangGraph create_react_agent 使用的 LangChain ChatModel。
+    仅当 llm_type 为 openai 或 vllm 时可用；dify 不支持 LangGraph 工具调用路径。
+    """
+    llm = get_llm(llm_type)
+    get_native = getattr(llm, "get_native_chat_model", None)
+    if callable(get_native):
+        return get_native()
+    raise ConfigError(
+        "LangGraph 仅支持 llm_type=openai 或 vllm，当前 llm_type 为 dify 时不可用。"
+    )
